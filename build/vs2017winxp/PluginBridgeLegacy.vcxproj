@@ -747,6 +747,7 @@
     <ClInclude Include="..\..\src\mpt\base\check_platform.hpp" />
     <ClInclude Include="..\..\src\mpt\base\compiletime_warning.hpp" />
     <ClInclude Include="..\..\src\mpt\base\constexpr_throw.hpp" />
+    <ClInclude Include="..\..\src\mpt\base\debugging.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect_arch.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect_compiler.hpp" />
@@ -754,7 +755,7 @@
     <ClInclude Include="..\..\src\mpt\base\detect_libcxx.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect_os.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect_quirks.hpp" />
-    <ClInclude Include="..\..\src\mpt\base\floatingpoint.hpp" />
+    <ClInclude Include="..\..\src\mpt\base\float.hpp" />
     <ClInclude Include="..\..\src\mpt\base\integer.hpp" />
     <ClInclude Include="..\..\src\mpt\base\macros.hpp" />
     <ClInclude Include="..\..\src\mpt\base\math.hpp" />
@@ -774,9 +775,11 @@
     <ClInclude Include="..\..\src\mpt\base\tests\tests_base_arithmetic_shift.hpp" />
     <ClInclude Include="..\..\src\mpt\base\tests\tests_base_bit.hpp" />
     <ClInclude Include="..\..\src\mpt\base\tests\tests_base_math.hpp" />
+    <ClInclude Include="..\..\src\mpt\base\tests\tests_base_numeric.hpp" />
     <ClInclude Include="..\..\src\mpt\base\tests\tests_base_saturate_cast.hpp" />
     <ClInclude Include="..\..\src\mpt\base\tests\tests_base_saturate_round.hpp" />
     <ClInclude Include="..\..\src\mpt\base\tests\tests_base_wrapping_divide.hpp" />
+    <ClInclude Include="..\..\src\mpt\base\type_traits.hpp" />
     <ClInclude Include="..\..\src\mpt\base\utility.hpp" />
     <ClInclude Include="..\..\src\mpt\base\version.hpp" />
     <ClInclude Include="..\..\src\mpt\base\wrapping_divide.hpp" />
@@ -786,6 +789,7 @@
     <ClInclude Include="..\..\src\mpt\binary\tests\tests_binary.hpp" />
     <ClInclude Include="..\..\src\mpt\check\compiler.hpp" />
     <ClInclude Include="..\..\src\mpt\check\libc.hpp" />
+    <ClInclude Include="..\..\src\mpt\check\libcxx.hpp" />
     <ClInclude Include="..\..\src\mpt\check\mfc.hpp" />
     <ClInclude Include="..\..\src\mpt\check\windows.hpp" />
     <ClInclude Include="..\..\src\mpt\crc\crc.hpp" />
@@ -855,6 +859,7 @@
     <ClInclude Include="..\..\src\mpt\io_read\filedata_base_buffered.hpp" />
     <ClInclude Include="..\..\src\mpt\io_read\filedata_base_seekable.hpp" />
     <ClInclude Include="..\..\src\mpt\io_read\filedata_base_unseekable.hpp" />
+    <ClInclude Include="..\..\src\mpt\io_read\filedata_base_unseekable_buffer.hpp" />
     <ClInclude Include="..\..\src\mpt\io_read\filedata_callbackstream.hpp" />
     <ClInclude Include="..\..\src\mpt\io_read\filedata_memory.hpp" />
     <ClInclude Include="..\..\src\mpt\io_read\filedata_stdstream.hpp" />
@@ -877,6 +882,7 @@
     <ClInclude Include="..\..\src\mpt\path\os_path.hpp" />
     <ClInclude Include="..\..\src\mpt\path\os_path_long.hpp" />
     <ClInclude Include="..\..\src\mpt\path\path.hpp" />
+    <ClInclude Include="..\..\src\mpt\random\any_engine.hpp" />
     <ClInclude Include="..\..\src\mpt\random\crand.hpp" />
     <ClInclude Include="..\..\src\mpt\random\default_engines.hpp" />
     <ClInclude Include="..\..\src\mpt\random\device.hpp" />
@@ -902,6 +908,7 @@
     <ClInclude Include="..\..\src\mpt\uuid_namespace\tests\tests_uuid_namespace.hpp" />
     <ClInclude Include="..\..\src\mpt\uuid_namespace\uuid_namespace.hpp" />
     <ClInclude Include="..\..\src\openmpt\all\BuildSettings.hpp" />
+    <ClInclude Include="..\..\src\openmpt\all\PlatformFixes.hpp" />
     <ClInclude Include="..\..\src\openmpt\base\Endian.hpp" />
     <ClInclude Include="..\..\src\openmpt\base\FlagSet.hpp" />
     <ClInclude Include="..\..\src\openmpt\base\Int24.hpp" />

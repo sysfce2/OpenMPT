@@ -125,7 +125,18 @@ static constexpr MPTEffectInfo gFXInfo[] =
 	{CMD_FINETUNE_SMOOTH,	0,0,	0,	MOD_TYPE_MPT,	_T("Finetune (Smooth)")},
 	{CMD_DUMMY,	0,0,	0,	MOD_TYPE_NONE,	_T("Empty") },
 	{CMD_DIGIREVERSESAMPLE, 0, 0, 0, MOD_TYPE_NONE, _T("Reverse Sample")}, // DIGI effect
-	{CMD_VOLUME8, 0,0, 0, MOD_TYPE_NONE, _T("Set 8-bit Volume")},
+	{CMD_VOLUME8, 0, 0, 0, MOD_TYPE_NONE, _T("Set 8-bit Volume")},
+	{CMD_HMN_MEGA_ARP, 0, 0, 0, MOD_TYPE_NONE, _T("His Master's Noise Mega-Arpeggio")},
+	{CMD_MED_SYNTH_JUMP, 0, 0, 0, MOD_TYPE_NONE, _T("Synth Jump / MIDI Panning")},
+	{CMD_AUTO_VOLUMESLIDE, 0, 0, 0, MOD_TYPE_NONE, _T("Automatic Volume Slide")},
+	{CMD_AUTO_PORTAUP, 0, 0, 0, MOD_TYPE_NONE, _T("Automatic Portamento Up")},
+	{CMD_AUTO_PORTADOWN, 0, 0, 0, MOD_TYPE_NONE, _T("Automatic Portamento Down")},
+	{CMD_AUTO_PORTAUP_FINE, 0, 0, 0, MOD_TYPE_NONE, _T("Automatic Fine Portamento Up")},
+	{CMD_AUTO_PORTADOWN_FINE, 0, 0, 0, MOD_TYPE_NONE, _T("Automatic Fine Portamento Down")},
+	{CMD_AUTO_PORTAMENTO_FC, 0, 0, 0, MOD_TYPE_NONE, _T("Automatic Portamento (Future Composer)")},
+	{CMD_TONEPORTA_DURATION, 0, 0, 0, MOD_TYPE_NONE, _T("Tone Portamento with Duration")},
+	{CMD_VOLUMEDOWN_DURATION, 0, 0, 0, MOD_TYPE_NONE, _T("Channel Volume Down with Duration")},
+	{CMD_VOLUMEDOWN_ETX, 0, 0, 0, MOD_TYPE_NONE, _T("ETX Volume Slide Down")},
 };
 
 
@@ -669,7 +680,7 @@ bool EffectInfo::GetEffectNameEx(CString &pszName, const ModCommand &m, uint32 p
 			if(chn != CHANNELINDEX_INVALID)
 			{
 				const uint8 macroIndex = sndFile.m_PlayState.Chn[chn].nActiveMacro;
-				const PLUGINDEX plugin = sndFile.GetBestPlugin(sndFile.m_PlayState, chn, PrioritiseChannel, EvenIfMuted) - 1;
+				const PLUGINDEX plugin = sndFile.GetBestPlugin(sndFile.m_PlayState.Chn[chn], chn, PrioritiseChannel, EvenIfMuted) - 1;
 				IMixPlugin *pPlugin = (plugin < MAX_MIXPLUGINS ? sndFile.m_MixPlugins[plugin].pMixPlugin : nullptr);
 				pszName.Format(_T("SFx MIDI Macro z=%d (SF%X: %s)"), param, macroIndex, sndFile.m_MidiCfg.GetParameteredMacroName(macroIndex, pPlugin).GetString());
 			} else
@@ -795,7 +806,7 @@ bool EffectInfo::GetEffectNameEx(CString &pszName, const ModCommand &m, uint32 p
 							break;
 
 						case 0x80: // panning
-							s = FormatPanning(param & 0x0F, 8).c_str();
+							s = FormatPanning(param & 0x0F, (param & 0x0F) < 8 ? 8 : 7).c_str();
 							break;
 
 						case 0xA0: // high offset
@@ -888,7 +899,7 @@ bool EffectInfo::GetEffectNameEx(CString &pszName, const ModCommand &m, uint32 p
 								s += _T(" times");
 							break;
 						case 0x80: // panning
-							s = FormatPanning(param & 0x0F, 8).c_str();
+							s = FormatPanning(param & 0x0F, (param & 0x0F) < 8 ? 8 : 7).c_str();
 							break;
 						case 0x90: // retrigger
 							s.Format(_T("speed %d"), param & 0x0F);
@@ -907,7 +918,7 @@ bool EffectInfo::GetEffectNameEx(CString &pszName, const ModCommand &m, uint32 p
 								if((param & 0x0F) == 0)
 									s = _T("Stop");
 								else
-									s.Format(_T("Speed %d"), param & 0x0F);
+									s.Format(_T("Speed %d (%d)"), param & 0x0F, ModEFxTable[param & 0x0F]);
 							} else
 							{
 								// macro
@@ -942,21 +953,21 @@ struct MPTVolCmdInfo
 
 static constexpr MPTVolCmdInfo gVolCmdInfo[] =
 {
-	{VOLCMD_VOLUME,			MOD_TYPE_NOMOD,		_T("Set Volume")},
-	{VOLCMD_PANNING,		MOD_TYPE_NOMOD,		_T("Set Panning")},
-	{VOLCMD_VOLSLIDEUP,		MOD_TYPE_XMITMPT,	_T("Volume slide up")},
-	{VOLCMD_VOLSLIDEDOWN,	MOD_TYPE_XMITMPT,	_T("Volume slide down")},
-	{VOLCMD_FINEVOLUP,		MOD_TYPE_XMITMPT,	_T("Fine volume up")},
-	{VOLCMD_FINEVOLDOWN,	MOD_TYPE_XMITMPT,	_T("Fine volume down")},
-	{VOLCMD_VIBRATOSPEED,	MOD_TYPE_XM,		_T("Vibrato speed")},
-	{VOLCMD_VIBRATODEPTH,	MOD_TYPE_XMITMPT,	_T("Vibrato depth")},
-	{VOLCMD_PANSLIDELEFT,	MOD_TYPE_XM,		_T("Pan slide left")},
-	{VOLCMD_PANSLIDERIGHT,	MOD_TYPE_XM,		_T("Pan slide right")},
-	{VOLCMD_TONEPORTAMENTO,	MOD_TYPE_XMITMPT,	_T("Tone portamento")},
-	{VOLCMD_PORTAUP,		MOD_TYPE_ITMPT,		_T("Portamento up")},
-	{VOLCMD_PORTADOWN,		MOD_TYPE_ITMPT,		_T("Portamento down")},
-	{VOLCMD_PLAYCONTROL,	MOD_TYPE_NONE,		_T("Play Control")},
-	{VOLCMD_OFFSET,			MOD_TYPE_MPT,		_T("Sample Cue")},
+	{VOLCMD_VOLUME,         MOD_TYPE_NOMOD,   _T("Set Volume")},
+	{VOLCMD_PANNING,        MOD_TYPE_NOMOD,   _T("Set Panning")},
+	{VOLCMD_VOLSLIDEUP,     MOD_TYPE_XMITMPT, _T("Volume slide up")},
+	{VOLCMD_VOLSLIDEDOWN,   MOD_TYPE_XMITMPT, _T("Volume slide down")},
+	{VOLCMD_FINEVOLUP,      MOD_TYPE_XMITMPT, _T("Fine volume up")},
+	{VOLCMD_FINEVOLDOWN,    MOD_TYPE_XMITMPT, _T("Fine volume down")},
+	{VOLCMD_VIBRATOSPEED,   MOD_TYPE_XM,      _T("Vibrato speed")},
+	{VOLCMD_VIBRATODEPTH,   MOD_TYPE_XMITMPT, _T("Vibrato depth")},
+	{VOLCMD_PANSLIDELEFT,   MOD_TYPE_XM,      _T("Pan slide left")},
+	{VOLCMD_PANSLIDERIGHT,  MOD_TYPE_XM,      _T("Pan slide right")},
+	{VOLCMD_TONEPORTAMENTO, MOD_TYPE_XMITMPT, _T("Tone portamento")},
+	{VOLCMD_PORTAUP,        MOD_TYPE_ITMPT,   _T("Portamento up")},
+	{VOLCMD_PORTADOWN,      MOD_TYPE_ITMPT,   _T("Portamento down")},
+	{VOLCMD_PLAYCONTROL,    MOD_TYPE_NONE,    _T("Play Control")},
+	{VOLCMD_OFFSET,         MOD_TYPE_MPT,     _T("Sample Cue")},
 };
 
 static_assert(mpt::array_size<decltype(gVolCmdInfo)>::size == (MAX_VOLCMDS - 1));
@@ -986,35 +997,46 @@ VolumeCommand EffectInfo::GetVolCmdFromIndex(UINT ndx) const
 
 bool EffectInfo::GetVolCmdInfo(UINT ndx, CString *s, ModCommand::VOL *prangeMin, ModCommand::VOL *prangeMax) const
 {
-	if (s) s->Empty();
-	if (prangeMin) *prangeMin = 0;
-	if (prangeMax) *prangeMax = 0;
-	if (ndx >= std::size(gVolCmdInfo)) return false;
-	if (s)
-	{
+	if(s)
+		s->Empty();
+	if(prangeMin)
+		*prangeMin = 0;
+	if(prangeMax)
+		*prangeMax = 0;
+	if(ndx >= std::size(gVolCmdInfo))
+		return false;
+	if(s)
 		s->Format(_T("%c: %s"), sndFile.GetModSpecifications().GetVolEffectLetter(GetVolCmdFromIndex(ndx)), gVolCmdInfo[ndx].name);
-	}
-	if ((prangeMin) && (prangeMax))
+	if(prangeMin && prangeMax)
 	{
 		switch(gVolCmdInfo[ndx].volCmd)
 		{
 		case VOLCMD_VOLUME:
-		case VOLCMD_PANNING:
 			*prangeMax = 64;
 			break;
-
+		case VOLCMD_PANNING:
+			*prangeMax = (sndFile.GetType() & MOD_TYPE_XM) ? 15 : 64;
+			break;
 		default:
 			*prangeMax = (sndFile.GetType() & MOD_TYPE_XM) ? 15 : 9;
+			break;
 		}
 	}
 	return (sndFile.GetType() & gVolCmdInfo[ndx].supportedFormats);
 }
 
 
-bool EffectInfo::GetVolCmdParamInfo(const ModCommand &m, CString *s) const
+bool EffectInfo::GetVolCmdParamInfo(const ModCommand &m, CString *s, bool hex) const
 {
-	if(s == nullptr) return false;
+	if(s == nullptr)
+		return false;
 	s->Empty();
+
+	CString volume;
+	if(hex)
+		volume = mpt::cfmt::HEX(m.vol);
+	else
+		volume = mpt::cfmt::dec(m.vol);
 
 	switch(m.volcmd)
 	{
@@ -1028,9 +1050,8 @@ bool EffectInfo::GetVolCmdParamInfo(const ModCommand &m, CString *s) const
 	case VOLCMD_FINEVOLDOWN:
 		if(m.vol > 0 || sndFile.GetType() == MOD_TYPE_XM)
 		{
-			s->Format(_T("%c%u"),
-				(m.volcmd == VOLCMD_VOLSLIDEUP || m.volcmd == VOLCMD_FINEVOLUP) ? _T('+') : _T('-'),
-				m.vol);
+			*s = ((m.volcmd == VOLCMD_VOLSLIDEUP || m.volcmd == VOLCMD_FINEVOLUP) ? _T('+') : _T('-'))
+				+ volume;
 		} else
 		{
 			*s = _T("continue");
@@ -1053,8 +1074,8 @@ bool EffectInfo::GetVolCmdParamInfo(const ModCommand &m, CString *s) const
 				if(sndFile.GetType() != MOD_TYPE_XM) param = ImpulseTrackerPortaVolCmd[m.vol & 0x0F];
 				else param = m.vol << 4;
 			}
-			s->Format(_T("%u (%c%02X)"),
-				m.vol,
+			*s = volume;
+			s->AppendFormat(_T(" (%c%02X)"),
 				sndFile.GetModSpecifications().GetEffectLetter(cmd),
 				param);
 		} else
@@ -1091,17 +1112,42 @@ bool EffectInfo::GetVolCmdParamInfo(const ModCommand &m, CString *s) const
 		break;
 
 	case VOLCMD_PLAYCONTROL:
-		if(m.vol == 0)
-			*s = _T("Pause Playback");
-		else if(m.vol == 1)
-			*s = _T("Continue Playback");
+		switch(m.vol)
+		{
+		case 0: *s = _T("Pause Playback"); break;
+		case 1: *s = _T("Continue Playback"); break;
+		case 2: *s = _T("Play Forward"); break;
+		case 3: *s = _T("Play Backward"); break;
+		case 4: *s = _T("Switch Play Direction"); break;
+		case 5: *s = _T("Store Offset"); break;
+		case 6: *s = _T("Play From Offset"); break;
+		default: *s = _T("unused"); break;
+		}
 		break;
-
 	default:
-		s->Format(_T("%u"), m.vol);
+		*s = volume;
 		break;
 	}
 	return true;
+}
+
+	// Map an effect value to slider position
+UINT EffectInfo::MapVolumeToPos(VolumeCommand cmd, ModCommand::VOL param) const
+{
+	if(cmd == VOLCMD_PANNING && sndFile.GetType() == MOD_TYPE_XM)
+		return param / 4u;
+	else
+		return param;
+}
+
+
+// Map slider position to an effect value
+ModCommand::VOL EffectInfo::MapPosToVolume(VolumeCommand cmd, UINT pos) const
+{
+	if(cmd == VOLCMD_PANNING && sndFile.GetType() == MOD_TYPE_XM)
+		return static_cast<ModCommand::VOL>(std::min(pos * 4u, 64u));
+	else
+		return static_cast<ModCommand::VOL>(std::min(pos, 64u));
 }
 
 

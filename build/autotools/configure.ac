@@ -24,20 +24,29 @@ AC_PROG_CXX
 AC_PROG_INSTALL
 
 # We need C++17 support.
-AX_CXX_COMPILE_STDCXX(20, [noext], [optional])
-AS_IF([test "x$HAVE_CXX20" != "x1"],
+AX_CXX_COMPILE_STDCXX([23], [noext], [optional])
+AS_IF([test "x$HAVE_CXX23" != "x1"],
  [
-  AX_CXX_COMPILE_STDCXX(17, [noext], [mandatory])
+  AX_CXX_COMPILE_STDCXX([20], [noext], [optional])
+  AS_IF([test "x$HAVE_CXX20" != "x1"],
+   [
+    AX_CXX_COMPILE_STDCXX([17], [noext], [mandatory])
+   ],[]
+  )
  ],[]
 )
 
+GLOBAL_CPPFLAGS=
+GLOBAL_CFLAGS=
+GLOBAL_CXXFLAGS=
+
 AC_LANG_PUSH([C])
-AX_CHECK_COMPILE_FLAG([-fvisibility=hidden], [CFLAGS="$CFLAGS -fvisibility=hidden"])
+AX_CHECK_COMPILE_FLAG([-fvisibility=hidden], [GLOBAL_CFLAGS="$GLOBAL_CFLAGS -fvisibility=hidden"])
 AX_CFLAGS_WARN_ALL
 AC_LANG_POP([C])
 
 AC_LANG_PUSH([C++])
-AX_CHECK_COMPILE_FLAG([-fvisibility=hidden], [CXXFLAGS="$CXXFLAGS -fvisibility=hidden"])
+AX_CHECK_COMPILE_FLAG([-fvisibility=hidden], [GLOBAL_CXXFLAGS="$GLOBAL_CXXFLAGS -fvisibility=hidden"])
 AX_CXXFLAGS_WARN_ALL
 AC_LANG_POP([C++])
 
@@ -46,13 +55,30 @@ AX_CXX_RTTI
 
 AX_PTHREAD([
  LIBS="$PTHREAD_LIBS $LIBS"
- CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
- CXXFLAGS="$CXXFLAGS $PTHREAD_CFLAGS"
+ GLOBAL_CFLAGS="$GLOBAL_CFLAGS $PTHREAD_CFLAGS"
+ GLOBAL_CXXFLAGS="$GLOBAL_CXXFLAGS $PTHREAD_CFLAGS"
  #CC="$PTHREAD_CC"
  #CXX="$PTHREAD_CXX"
  ],
  []
 )
+
+# work-around <https://gcc.gnu.org/bugzilla/show_bug.cgi?id=115049>
+# This is somewhat pessimistic, but necessary for GCC 8 or earlier,
+# which we still support and where we cannot use #pragma GCC optimize.
+AC_LANG_PUSH([C])
+AX_CHECK_COMPILE_FLAG([-fno-ipa-ra], [GLOBAL_CFLAGS="$GLOBAL_CFLAGS -fno-ipa-ra"])
+AX_CFLAGS_WARN_ALL
+AC_LANG_POP([C])
+AC_LANG_PUSH([C++])
+AX_CHECK_COMPILE_FLAG([-fno-ipa-ra], [GLOBAL_CXXFLAGS="$GLOBAL_CXXFLAGS -fno-ipa-ra"])
+AX_CXXFLAGS_WARN_ALL
+AC_LANG_POP([C++])
+
+
+AC_SUBST([GLOBAL_CPPFLAGS])
+AC_SUBST([GLOBAL_CFLAGS])
+AC_SUBST([GLOBAL_CXXFLAGS])
 
 
 LIBOPENMPT_LTVER_CURRENT=!!MPT_LIBOPENMPT_LTVER_CURRENT!!
@@ -72,19 +98,26 @@ AC_ARG_VAR(CXXSTDLIB_PCLIBSPRIVATE, [C++ standard library (or libraries) require
 
 
 AC_CANONICAL_HOST
-case $host_os in
- mingw32*)
+
+# work-around NetBSD toolchain not understanding transitive shared object dependencies at all
+AS_CASE([$host_os],
+ [netbsd*], [LIBS="$LIBS -lstdc++"],
+ []
+)
+
+AS_CASE([$host_os],
+ [mingw32*],[
   LIBOPENMPT_WIN32_LIBS=
   LIBOPENMPT_LIBS_PRIVATE_WIN32=
   LIBOPENMPTTEST_WIN32_LIBS="-lole32 -lrpcrt4"
   OPENMPT123_WIN32_LIBS=-lwinmm
-  WIN32_CPPFLAGS="-DNOMINMAX"
+  WIN32_CPPFLAGS="-D_UNICODE -DNOMINMAX"
   WIN32_CXXFLAGS="-municode -mthreads"
   WIN32_CFLAGS="-municode -mthreads"
   WIN32_CONSOLE_CXXFLAGS=-mconsole
   WIN32_CONSOLE_CFLAGS=-mconsole
-  ;;
- *)
+ ],
+ [
   LIBOPENMPT_WIN32_LIBS=
   LIBOPENMPT_LIBS_PRIVATE_WIN32=
   LIBOPENMPTTEST_WIN32_LIBS=
@@ -94,8 +127,8 @@ case $host_os in
   WIN32_CFLAGS=
   WIN32_CONSOLE_CXXFLAGS=
   WIN32_CONSOLE_CFLAGS=
-  ;;
-esac
+ ]
+)
 AC_SUBST([LIBOPENMPT_WIN32_LIBS])
 AC_SUBST([LIBOPENMPTTEST_WIN32_LIBS])
 AC_SUBST([OPENMPT123_WIN32_LIBS])
@@ -198,8 +231,8 @@ AM_CONDITIONAL([ENABLE_TESTS], [test "x$enable_tests" != "xno"])
 # Optional openmpt123 dependency
 AC_ARG_WITH([pulseaudio], AS_HELP_STRING([--with-pulseaudio], [Enable use of libpulse and libpulse-simple (enabled by default on Linux).]))
 AS_IF([test "x$enable_openmpt123" != "xno"],[
-case $host_os in
- linux*)
+AS_CASE([$host_os],
+ [linux*],[
 AS_IF([test "x$with_pulseaudio" != "xno"],
  [
   PKG_CHECK_MODULES([PULSEAUDIO], [libpulse libpulse-simple],
@@ -236,8 +269,9 @@ AS_IF([test "x$with_pulseaudio" = "xyes"],
   have_pulseaudio=0
  ]
 )
- ;;
-esac
+ ],
+ []
+)
 ],[have_pulseaudio=0])
 
 # Optional openmpt123 and examples dependency

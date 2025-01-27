@@ -26,7 +26,7 @@
 
 OPENMPT_NAMESPACE_BEGIN
 
-BEGIN_MESSAGE_MAP(WelcomeDlg, CDialog)
+BEGIN_MESSAGE_MAP(WelcomeDlg, DialogBase)
 	ON_COMMAND(IDC_BUTTON1, &WelcomeDlg::OnOptions)
 	ON_COMMAND(IDC_BUTTON2, &WelcomeDlg::OnScanPlugins)
 END_MESSAGE_MAP()
@@ -47,7 +47,7 @@ static mpt::PathString GetFullKeyPath(const char *keyFile)
 
 BOOL WelcomeDlg::OnInitDialog()
 {
-	CDialog::OnInitDialog();
+	DialogBase::OnInitDialog();
 
 #ifdef MPT_WITH_VST
 	HKEY hkEnum = NULL;
@@ -121,7 +121,7 @@ BOOL WelcomeDlg::OnInitDialog()
 			// As this is presented as the default, load it right now, even if the user closes the dialog through the close button
 			auto cmdSet = std::make_unique<CCommandSet>();
 			cmdSet->LoadFile(GetFullKeyPath(keyFile));
-			CMainFrame::GetInputHandler()->SetNewCommandSet(cmdSet.get());
+			CMainFrame::GetInputHandler()->SetNewCommandSet(*cmdSet);
 		}
 	}
 	combo->SetItemDataPtr(combo->AddString(_T("Impulse Tracker")), (void*)("US_mpt-it2_classic"));
@@ -157,7 +157,7 @@ void WelcomeDlg::OnScanPlugins()
 
 void WelcomeDlg::OnOK()
 {
-	CDialog::OnOK();
+	DialogBase::OnOK();
 
 #if defined(MPT_ENABLE_UPDATE)
 	bool runUpdates = IsDlgButtonChecked(IDC_CHECK1) != BST_UNCHECKED;
@@ -185,7 +185,7 @@ void WelcomeDlg::OnOK()
 		cmdSet->LoadFile(GetFullKeyPath(keyFile));
 	else
 		cmdSet->LoadDefaultKeymap();
-	CMainFrame::GetInputHandler()->SetNewCommandSet(cmdSet.get());
+	CMainFrame::GetInputHandler()->SetNewCommandSet(*cmdSet);
 
 #if defined(MPT_ENABLE_UPDATE)
 	if(runUpdates)
@@ -200,7 +200,7 @@ void WelcomeDlg::OnOK()
 
 void WelcomeDlg::OnCancel()
 {
-	CDialog::OnCancel();
+	DialogBase::OnCancel();
 	DestroyWindow();
 }
 

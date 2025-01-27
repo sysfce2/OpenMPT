@@ -753,6 +753,7 @@
     <ClInclude Include="..\..\openmpt123\openmpt123.hpp" />
     <ClInclude Include="..\..\openmpt123\openmpt123_allegro42.hpp" />
     <ClInclude Include="..\..\openmpt123\openmpt123_config.hpp" />
+    <ClInclude Include="..\..\openmpt123\openmpt123_exception.hpp" />
     <ClInclude Include="..\..\openmpt123\openmpt123_flac.hpp" />
     <ClInclude Include="..\..\openmpt123\openmpt123_mmio.hpp" />
     <ClInclude Include="..\..\openmpt123\openmpt123_portaudio.hpp" />
@@ -760,7 +761,9 @@
     <ClInclude Include="..\..\openmpt123\openmpt123_raw.hpp" />
     <ClInclude Include="..\..\openmpt123\openmpt123_sdl2.hpp" />
     <ClInclude Include="..\..\openmpt123\openmpt123_sndfile.hpp" />
+    <ClInclude Include="..\..\openmpt123\openmpt123_stdio.hpp" />
     <ClInclude Include="..\..\openmpt123\openmpt123_stdout.hpp" />
+    <ClInclude Include="..\..\openmpt123\openmpt123_terminal.hpp" />
     <ClInclude Include="..\..\openmpt123\openmpt123_waveout.hpp" />
     <ClInclude Include="..\..\src\mpt\base\algorithm.hpp" />
     <ClInclude Include="..\..\src\mpt\base\aligned_array.hpp" />
@@ -771,6 +774,7 @@
     <ClInclude Include="..\..\src\mpt\base\check_platform.hpp" />
     <ClInclude Include="..\..\src\mpt\base\compiletime_warning.hpp" />
     <ClInclude Include="..\..\src\mpt\base\constexpr_throw.hpp" />
+    <ClInclude Include="..\..\src\mpt\base\debugging.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect_arch.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect_compiler.hpp" />
@@ -778,7 +782,7 @@
     <ClInclude Include="..\..\src\mpt\base\detect_libcxx.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect_os.hpp" />
     <ClInclude Include="..\..\src\mpt\base\detect_quirks.hpp" />
-    <ClInclude Include="..\..\src\mpt\base\floatingpoint.hpp" />
+    <ClInclude Include="..\..\src\mpt\base\float.hpp" />
     <ClInclude Include="..\..\src\mpt\base\integer.hpp" />
     <ClInclude Include="..\..\src\mpt\base\macros.hpp" />
     <ClInclude Include="..\..\src\mpt\base\math.hpp" />
@@ -795,6 +799,7 @@
     <ClInclude Include="..\..\src\mpt\base\size.hpp" />
     <ClInclude Include="..\..\src\mpt\base\source_location.hpp" />
     <ClInclude Include="..\..\src\mpt\base\span.hpp" />
+    <ClInclude Include="..\..\src\mpt\base\type_traits.hpp" />
     <ClInclude Include="..\..\src\mpt\base\utility.hpp" />
     <ClInclude Include="..\..\src\mpt\base\version.hpp" />
     <ClInclude Include="..\..\src\mpt\base\wrapping_divide.hpp" />
@@ -828,6 +833,7 @@
     <ClInclude Include="..\..\src\mpt\io_file\fstream.hpp" />
     <ClInclude Include="..\..\src\mpt\io_file\inputfile.hpp" />
     <ClInclude Include="..\..\src\mpt\io_file\outputfile.hpp" />
+    <ClInclude Include="..\..\src\mpt\main\main.hpp" />
     <ClInclude Include="..\..\src\mpt\parse\parse.hpp" />
     <ClInclude Include="..\..\src\mpt\parse\split.hpp" />
     <ClInclude Include="..\..\src\mpt\path\basic_path.hpp" />
@@ -835,6 +841,14 @@
     <ClInclude Include="..\..\src\mpt\path\os_path.hpp" />
     <ClInclude Include="..\..\src\mpt\path\os_path_long.hpp" />
     <ClInclude Include="..\..\src\mpt\path\path.hpp" />
+    <ClInclude Include="..\..\src\mpt\random\any_engine.hpp" />
+    <ClInclude Include="..\..\src\mpt\random\crand.hpp" />
+    <ClInclude Include="..\..\src\mpt\random\default_engines.hpp" />
+    <ClInclude Include="..\..\src\mpt\random\device.hpp" />
+    <ClInclude Include="..\..\src\mpt\random\engine.hpp" />
+    <ClInclude Include="..\..\src\mpt\random\engine_lcg.hpp" />
+    <ClInclude Include="..\..\src\mpt\random\random.hpp" />
+    <ClInclude Include="..\..\src\mpt\random\seed.hpp" />
     <ClInclude Include="..\..\src\mpt\string\buffer.hpp" />
     <ClInclude Include="..\..\src\mpt\string\types.hpp" />
     <ClInclude Include="..\..\src\mpt\string\utility.hpp" />

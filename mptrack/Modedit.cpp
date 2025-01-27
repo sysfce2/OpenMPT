@@ -12,10 +12,12 @@
 #include "Clipboard.h"
 #include "dlg_misc.h"
 #include "Dlsbank.h"
+#include "HighDPISupport.h"
 #include "Mainfrm.h"
 #include "Moddoc.h"
 #include "Mptrack.h"
 #include "Reporting.h"
+#include "resource.h"
 #include "TrackerSettings.h"
 #include "../common/misc_util.h"
 #include "../common/mptFileIO.h"
@@ -86,10 +88,7 @@ bool CModDoc::ChangeNumChannels(CHANNELINDEX nNewChannels, const bool showCancel
 		// Increasing number of channels
 		BeginWaitCursor();
 		std::vector<CHANNELINDEX> channels(nNewChannels, CHANNELINDEX_INVALID);
-		for(CHANNELINDEX chn = 0; chn < GetNumChannels(); chn++)
-		{
-			channels[chn] = chn;
-		}
+		std::iota(channels.begin(), channels.begin() + GetNumChannels(), CHANNELINDEX(0));
 
 		bool success = (ReArrangeChannels(channels) == nNewChannels);
 		if(success)
@@ -107,11 +106,12 @@ bool CModDoc::ChangeNumChannels(CHANNELINDEX nNewChannels, const bool showCancel
 // Return true on success.
 bool CModDoc::RemoveChannels(const std::vector<bool> &keepMask, bool verbose)
 {
+	MPT_ASSERT(keepMask.size() == GetNumChannels());
 	CHANNELINDEX nRemainingChannels = 0;
 	//First calculating how many channels are to be left
-	for(CHANNELINDEX chn = 0; chn < GetNumChannels(); chn++)
+	for(bool keep : keepMask)
 	{
-		if(keepMask[chn])
+		if(keep)
 			nRemainingChannels++;
 	}
 	if(nRemainingChannels == GetNumChannels() || nRemainingChannels < m_SndFile.GetModSpecifications().channelsMin)
@@ -135,9 +135,7 @@ bool CModDoc::RemoveChannels(const std::vector<bool> &keepMask, bool verbose)
 	for(CHANNELINDEX chn = 0; chn < GetNumChannels(); chn++)
 	{
 		if(keepMask[chn])
-		{
 			channels[i++] = chn;
-		}
 	}
 	const bool success = (ReArrangeChannels(channels) == nRemainingChannels);
 	if(success)
@@ -176,6 +174,7 @@ CHANNELINDEX CModDoc::ReArrangeChannels(const std::vector<CHANNELINDEX> &newOrde
 	}
 
 	CriticalSection cs;
+	const std::vector<ModChannelSettings> settings = m_SndFile.ChnSettings;
 	if(oldNumChannels == newNumChannels)
 	{
 		// Optimization with no pattern re-allocation
@@ -201,6 +200,7 @@ CHANNELINDEX CModDoc::ReArrangeChannels(const std::vector<CHANNELINDEX> &newOrde
 		std::vector<std::vector<ModCommand>> newPatterns;
 		try
 		{
+			m_SndFile.ChnSettings.reserve(newNumChannels);
 			newPatterns.resize(m_SndFile.Patterns.Size());
 			for(PATTERNINDEX i = 0; i < m_SndFile.Patterns.Size(); i++)
 			{
@@ -213,7 +213,7 @@ CHANNELINDEX CModDoc::ReArrangeChannels(const std::vector<CHANNELINDEX> &newOrde
 			return oldNumChannels;
 		}
 
-		m_SndFile.m_nChannels = newNumChannels;
+		m_SndFile.ChnSettings.resize(newNumChannels);
 		for(PATTERNINDEX i = 0; i < m_SndFile.Patterns.Size(); i++)
 		{
 			CPattern &pat = m_SndFile.Patterns[i];
@@ -255,15 +255,10 @@ CHANNELINDEX CModDoc::ReArrangeChannels(const std::vector<CHANNELINDEX> &newOrde
 			channel.Reset(ModChannel::resetTotal, m_SndFile, chn, muteFlag);
 	}
 
-	std::vector<ModChannel> chns(std::begin(m_SndFile.m_PlayState.Chn), std::begin(m_SndFile.m_PlayState.Chn) + oldNumChannels);
-	std::vector<ModChannelSettings> settings(std::begin(m_SndFile.ChnSettings), std::begin(m_SndFile.ChnSettings) + oldNumChannels);
-	std::vector<RecordGroup> recordStates(oldNumChannels);
-	auto chnMutePendings = m_SndFile.m_bChannelMuteTogglePending;
-	for(CHANNELINDEX chn = 0; chn < oldNumChannels; chn++)
-	{
-		recordStates[chn] = GetChannelRecordGroup(chn);
-	}
-	ReinitRecordState();
+	std::vector<ModChannel> chns(m_SndFile.m_PlayState.Chn.begin(), m_SndFile.m_PlayState.Chn.begin() + oldNumChannels);
+	const auto chnMutePendings = m_SndFile.m_bChannelMuteTogglePending;
+	const auto recordStates = m_multiRecordGroup;
+	m_multiRecordGroup.clear();
 
 	for(CHANNELINDEX chn = 0; chn < newNumChannels; chn++)
 	{
@@ -272,13 +267,15 @@ CHANNELINDEX CModDoc::ReArrangeChannels(const std::vector<CHANNELINDEX> &newOrde
 		{
 			m_SndFile.ChnSettings[chn] = settings[srcChn];
 			m_SndFile.m_PlayState.Chn[chn] = chns[srcChn];
-			SetChannelRecordGroup(chn, recordStates[srcChn]);
+			if(srcChn < recordStates.size())
+				SetChannelRecordGroup(chn, recordStates[srcChn]);
 			m_SndFile.m_bChannelMuteTogglePending[chn] = chnMutePendings[srcChn];
 			if(m_SndFile.m_opl)
 				m_SndFile.m_opl->MoveChannel(srcChn, chn);
 		} else
 		{
-			m_SndFile.InitChannel(chn);
+			mpt::reconstruct(m_SndFile.ChnSettings[chn]);
+			InitChannel(chn);
 			SetDefaultChannelColors(chn);
 		}
 	}
@@ -377,7 +374,7 @@ SAMPLEINDEX CModDoc::ReArrangeSamples(const std::vector<SAMPLEINDEX> &newOrder)
 	GetSampleUndo().RearrangeSamples(newIndex);
 
 	const auto muteFlag = CSoundFile::GetChannelMuteFlag();
-	for(CHANNELINDEX c = 0; c < std::size(m_SndFile.m_PlayState.Chn); c++)
+	for(CHANNELINDEX c = 0; c < m_SndFile.m_PlayState.Chn.size(); c++)
 	{
 		ModChannel &chn = m_SndFile.m_PlayState.Chn[c];
 		for(SAMPLEINDEX i = 1; i <= oldNumSamples; i++)
@@ -610,7 +607,7 @@ PLUGINDEX CModDoc::RemovePlugs(const std::vector<bool> &keepMask)
 		}
 
 		plug.Destroy();
-		plug = {};
+		mpt::reconstruct(plug);
 
 		for(PLUGINDEX srcPlugSlot = 0; srcPlugSlot < nPlug; srcPlugSlot++)
 		{
@@ -618,11 +615,10 @@ PLUGINDEX CModDoc::RemovePlugs(const std::vector<bool> &keepMask)
 			if(srcPlug.GetOutputPlugin() == nPlug)
 			{
 				srcPlug.SetOutputToMaster();
-				UpdateAllViews(nullptr, PluginHint(static_cast<PLUGINDEX>(srcPlugSlot + 1)).Info());
 			}
 		}
-		UpdateAllViews(nullptr, PluginHint(static_cast<PLUGINDEX>(nPlug + 1)).Info().Names());
 	}
+	UpdateAllViews(nullptr, PluginHint().Info().Names());
 
 	if(nRemoved && m_SndFile.GetModSpecifications().supportsPlugins)
 		SetModified();
@@ -652,7 +648,7 @@ void CModDoc::ClonePlugin(SNDMIXPLUGIN &target, const SNDMIXPLUGIN &source)
 	if(target.editorX != int32_min)
 	{
 		// Move target editor a bit to visually distinguish it from the original editor
-		int addPixels = Util::ScalePixels(16, CMainFrame::GetMainFrame()->m_hWnd);
+		int addPixels = HighDPISupport::ScalePixels(16, CMainFrame::GetMainFrame()->m_hWnd);
 		target.editorX += addPixels;
 		target.editorY += addPixels;
 	}
@@ -958,7 +954,7 @@ bool CModDoc::MoveOrder(ORDERINDEX sourceOrd, ORDERINDEX destOrd, bool update, b
 		return false;
 
 	auto &sourceSequence = m_SndFile.Order(sourceSeq);
-	const PATTERNINDEX sourcePat = sourceOrd < sourceSequence.size() ? sourceSequence[sourceOrd] : sourceSequence.GetInvalidPatIndex();
+	const PATTERNINDEX sourcePat = sourceOrd < sourceSequence.size() ? sourceSequence[sourceOrd] : PATTERNINDEX_INVALID;
 
 	// Delete source
 	if(!copy)

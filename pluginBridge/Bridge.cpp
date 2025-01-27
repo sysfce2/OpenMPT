@@ -368,17 +368,15 @@ void PluginBridge::InitBridge(InitMsg &msg)
 		return;
 	}
 
-	auto mainProc = (Vst::MainProc)GetProcAddress(m_library, "VSTPluginMain");
-	if(mainProc == nullptr)
-	{
-		mainProc = (Vst::MainProc)GetProcAddress(m_library, "main");
-	}
+	m_mainProc = reinterpret_cast<Vst::MainProc>(GetProcAddress(m_library, "VSTPluginMain"));
+	if(m_mainProc == nullptr)
+		m_mainProc = reinterpret_cast<Vst::MainProc>(GetProcAddress(m_library, "main"));
 
-	if(mainProc != nullptr)
+	if(m_mainProc != nullptr)
 	{
 		__try
 		{
-			m_nativeEffect = mainProc(MasterCallback);
+			m_nativeEffect = m_mainProc(MasterCallback);
 		} __except(EXCEPTION_EXECUTE_HANDLER)
 		{
 			m_nativeEffect = nullptr;
@@ -478,6 +476,9 @@ void PluginBridge::DispatchToPlugin(DispatchMsg &msg)
 		// [value]: 0 means "turn off", 1 means "turn on"
 		::SetThreadPriority(m_audioThread, msg.value ? THREAD_PRIORITY_ABOVE_NORMAL : THREAD_PRIORITY_NORMAL);
 		m_sharedMem->tailSize = static_cast<int32>(Dispatch(effGetTailSize, 0, 0, nullptr, 0.0f));
+		// Plugin should tell us if number of channels changes through audioMasterIOChanged, but Surge XT via vst3ishell has been observed not to do that.
+		if(msg.value)
+			DispatchToHost(audioMasterVendorSpecific, kVendorOpenMPT, kUpdateProcessingBuffer, nullptr, 0.0f);
 		break;
 
 	case effEditGetRect:
@@ -622,6 +623,14 @@ void PluginBridge::DispatchToPlugin(DispatchMsg &msg)
 					{
 						params[i] = m_nativeEffect->getParameter(m_nativeEffect, i);
 					}
+				}
+				break;
+			case kCallVSTPluginMain:
+				if(m_mainProc)
+				{
+					Dispatch(effClose, 0, 0, nullptr, 0.0f);
+					m_nativeEffect = m_mainProc(MasterCallback);
+					UpdateEffectStruct();
 				}
 				break;
 			default:

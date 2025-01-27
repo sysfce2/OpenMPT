@@ -14,16 +14,16 @@
 
 #ifndef NO_PLUGINS
 
-#include <vector>
-#include "../soundlib/Snd_defs.h"
+#include "ResizableDialog.h"
 #include "Moddoc.h"
+#include "../soundlib/Snd_defs.h"
 
 OPENMPT_NAMESPACE_BEGIN
 
 class IMixPlugin;
 struct UpdateHint;
 
-class CAbstractVstEditor: public CDialog
+class CAbstractVstEditor : public ResizableDialog
 {
 protected:
 	CMenu m_Menu;
@@ -112,7 +112,7 @@ public:
 
 protected:
 	BOOL PreTranslateMessage(MSG *msg) override;
-	bool HandleKeyMessage(MSG &msg);
+	bool HandleKeyMessage(MSG &msg, bool handleGlobal = false);
 	void UpdatePresetMenu(bool force = false);
 	void GeneratePresetMenu(int32 offset, CMenu &parent);
 	void UpdateInputMenu();

@@ -12,9 +12,10 @@
 
 #include "openmpt/all/BuildSettings.hpp"
 
+#include "DialogBase.h"
 #include "ProgressDialog.h"
 #include "Settings.h"
-#include "StreamEncoder.h"
+#include "openmpt/streamencoder/StreamEncoder.hpp"
 #include "StreamEncoderSettings.h"
 #include "../soundlib/Snd_defs.h"
 
@@ -22,6 +23,7 @@
 OPENMPT_NAMESPACE_BEGIN
 
 class CSoundFile;
+struct SubSong;
 
 struct CWaveConvertSettings
 {
@@ -34,14 +36,13 @@ struct CWaveConvertSettings
 	StoredTags storedTags;
 	FileTags Tags;
 
-	int repeatCount;
-	ORDERINDEX minOrder, maxOrder;
-	SAMPLEINDEX sampleSlot;
-	SEQUENCEINDEX minSequence, maxSequence;
+	int repeatCount = 1;
+	ORDERINDEX minOrder = ORDERINDEX_INVALID, maxOrder = ORDERINDEX_INVALID;
+	SAMPLEINDEX sampleSlot = 0;
 
-	bool normalize : 1;
-	bool silencePlugBuffers : 1;
-	bool outputToSample : 1;
+	bool normalize = false;
+	bool silencePlugBuffers = false;
+	bool outputToSample = false;
 
 	std::size_t FindEncoder(const mpt::ustring &name) const;
 	void SelectEncoder(std::size_t index);
@@ -53,25 +54,33 @@ struct CWaveConvertSettings
 };
 
 
-class CWaveConvert: public CDialog
+class CWaveConvert : public DialogBase
 {
 public:
 	CWaveConvertSettings m_Settings;
-	const Encoder::Traits *encTraits;
 	CSoundFile &m_SndFile;
-	uint64 m_dwSongLimit;
-	ORDERINDEX m_nNumOrders;
+	uint64 m_dwSongLimit = 0;
+	std::vector<SubSong> m_subSongs;
+
+	bool m_bGivePlugsIdleTime = false;
+	bool m_bChannelMode = false;     // Render by channel
+	bool m_bInstrumentMode = false;  // Render by instrument
+
+private:
+	const Encoder::Traits *encTraits = nullptr;
 
 	CComboBox m_CbnFileType, m_CbnSampleRate, m_CbnChannels, m_CbnDither, m_CbnSampleFormat, m_CbnSampleSlot;
-	CSpinButtonCtrl m_SpinLoopCount, m_SpinMinOrder, m_SpinMaxOrder, m_SpinMinSequence, m_SpinMaxSequence;
-
-	bool m_bGivePlugsIdleTime;
-	bool m_bChannelMode;		// Render by channel
-	bool m_bInstrumentMode;		// Render by instrument
+	CSpinButtonCtrl m_SpinLoopCount, m_SpinMinOrder, m_SpinMaxOrder, m_SpinSubsongIndex;
 
 	CEdit m_EditTitle, m_EditAuthor, m_EditURL, m_EditAlbum, m_EditYear;
 	CComboBox m_CbnGenre;
 	CEdit m_EditGenre;
+	size_t m_selectedSong = 0;
+	const ORDERINDEX m_nNumOrders;
+
+public:
+	CWaveConvert(CWnd *parent, ORDERINDEX minOrder, ORDERINDEX maxOrder, ORDERINDEX numOrders, CSoundFile &sndFile, const std::vector<EncoderFactoryBase *> &encFactories);
+	~CWaveConvert();
 
 private:
 	void FillFileTypes();
@@ -86,14 +95,13 @@ private:
 	void SaveEncoderSettings();
 	void SaveTags();
 
-public:
-	CWaveConvert(CWnd *parent, ORDERINDEX minOrder, ORDERINDEX maxOrder, ORDERINDEX numOrders, CSoundFile &sndFile, const std::vector<EncoderFactoryBase*> &encFactories);
-
-public:
+	void UpdateSubsongName();
 	void UpdateDialog();
+
 	BOOL OnInitDialog() override;
 	void DoDataExchange(CDataExchange *pDX) override;
 	void OnOK() override;
+
 	afx_msg void OnCheckTimeLimit();
 	afx_msg void OnCheckChannelMode();
 	afx_msg void OnCheckInstrMode();
@@ -102,9 +110,11 @@ public:
 	afx_msg void OnChannelsChanged();
 	afx_msg void OnDitherChanged();
 	afx_msg void OnFormatChanged();
+	afx_msg void OnSubsongChanged();
 	afx_msg void OnPlayerOptions();
 	afx_msg void OnExportModeChanged();
 	afx_msg void OnSampleSlotChanged();
+
 	DECLARE_MESSAGE_MAP()
 };
 
@@ -112,23 +122,27 @@ public:
 class CDoWaveConvert: public CProgressDialog
 {
 public:
-	const CWaveConvertSettings &m_Settings;
-	CSoundFile &m_SndFile;
-	std::ostream &fileStream;
-	const CString &caption;
-	uint64 m_dwSongLimit;
-	bool m_bGivePlugsIdleTime;
+	uint64 m_dwSongLimit = 0;
+	bool m_bGivePlugsIdleTime = false;
 
 public:
-	CDoWaveConvert(CSoundFile &sndFile, std::ostream &f, const CString &caption, const CWaveConvertSettings &settings, CWnd *parent = NULL)
+	CDoWaveConvert(CSoundFile &sndFile, std::ostream &f, const CString &caption, const CWaveConvertSettings &settings, const SubSong &subSong, CWnd *parent = nullptr)
 		: CProgressDialog(parent)
 		, m_Settings(settings)
 		, m_SndFile(sndFile)
 		, fileStream(f)
 		, caption(caption)
-		, m_dwSongLimit(0)
+		, m_subSong(subSong)
 	{ }
+
 	void Run() override;
+
+private:
+	const CWaveConvertSettings &m_Settings;
+	CSoundFile &m_SndFile;
+	std::ostream &fileStream;
+	const CString &caption;
+	const SubSong &m_subSong;
 };
 
 

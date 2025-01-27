@@ -7,19 +7,81 @@ is just a high-level summary.
 
 ### libopenmpt 0.8.0-pre
 
- *  [**New**] MOD: Can now read modified 8-channel MOD files from the DOS game
-    Aleshar - The World Of Ice.
+ *  [**New**] Can now read PumaTracker (`PUMA`) modules.
+ *  [**New**] Can now read Face The Music (`FTM`) modules.
+ *  [**New**] Can now read Game Music Creator (`GMC`) modules.
+ *  [**New**] Can now read Chuck Biscuits / Black Artist (`CBA`) modules from
+    the Expoze musicdisk by Heretics
+ *  [**New**] Can now read Real Tracker 2 (`RTM`) modules.
+ *  [**New**] Can now read Images Music System (`IMS`) modules.
+ *  [**New**] Can now read ChipTracker (`MOD`) modules.
+ *  [**New**] Can now read EasyTrax (`ETX`) modules.
+ *  [**New**] Can now load UNIC Tracker v1 (`UNIC`) files.
+ *  [**New**] MED: Synthesized and hybrid instruments are now supported.
+ *  [**New**] GT2: Better support for old "envelopes", in particular adding
+    support for the previously missing tremor / tremolo / vibrato.
+ *  [**New**] NST: His Master's Noise "Mupp" instruments are now supported,
+    as well as command 7 "mega-arp".
+
  *  [**New**] `Makefile CONFIG=djgpp` now supports building LGPL libraries as
     DXE (use `ENABLE_DXE=0` to disable).
+ *  [**New**] New `Makefile` `CONFIG=mingw-w64` option
+    `WINDOWS_CRT=[crtdll,msvcrt,ucrt]` to select the toolchain CRT library.
+ *  [**New**] 32bit ARM builds now support Windows 8 (Windows RT) again.
+ *  [**New**] libopenmpt: New APIs for determining whether order list entrys or
+    pattern indices have a special meaning:
+    `openmpt::module::is_order_skip_entry()`,
+    `openmpt::module::is_pattern_skip_item()`,
+    `openmpt::module::is_order_stop_entry()`,
+    `openmpt::module::is_pattern_stop_item()` (C++), and
+    `openmpt_module_is_order_skip_entry()`,
+    `openmpt_module_is_pattern_skip_item()`,
+    `openmpt_module_is_order_stop_entry()`,
+    `openmpt_module_is_pattern_stop_item()` (C).
+ *  [**New**] libopenmpt: New APIs for retrieving pattern time signature
+    information:
+    `openmpt::module::get_pattern_rows_per_beat()`,
+    `openmpt::module::get_pattern_rows_per_measure()` (C++), and
+    `openmpt_module_get_pattern_rows_per_beat()`,
+    `openmpt_module_get_pattern_rows_per_measure()` (C).
+ *  [**New**] libopenmpt: New APIs for retrieving the restart / loop position:
+    `openmpt::module::get_restart_order()`,
+    `openmpt::module::get_restart_row()` (C++), and
+    `openmpt_module_get_restart_order()`,
+    `openmpt_module_get_restart_row()` (C).
+ *  [**New**] libopenmpt: New API for retrieving the playback time at a given
+    order / row combination:
+    `openmpt::module::get_time_at_position()` (C++), and
+    `openmpt_module_get_time_at_position()` (C).
 
  *  [**Change**] DOS builds now use zlib, libmpg123, libogg, and libvorbis
     instead of miniz, minimp3, and stb_vorbis by default. 
  *  [**Change**] `Makefile CONFIG=djgpp` now sets `ALLOW_LGPL=1` by default.
+ *  [**Change**] `build/download_externals.sh` now verifies the integrity of any
+    downloaded files and uses curl instead of wget.
 
  *  [**Regression**] Support for Emscripten versions older than 3.1.51 has been
     removed.
  *  [**Regression**] Using `EMSCRIPTEN_PORTS=1` with Emscripten older than
     3.1.54 now requires additionally specifying `ANCIENT=1`.
+
+ *  IT: Various plaback fixes. 
+ *  XM: If key-off is reached before auto-vibrato reaches full depth, the depth
+    is reset.
+ *  S3M: Combined slides (Kxy / Lxy) are no longer run on the first tick of a
+    row in files made with Scream Tracker.
+ *  MOD: Groo's "The Ultimate Beeper" now plays like in ProTracker.
+ *  DTM: Portamentos are now also evaluated on the first tick of the row.
+ *  MO3: If multiple sample slots shared the same Ogg Vorbis sample, only one
+    sample slot was loaded.
+ *  MED: Tempo parameters > 255 BPM were not imported properly if the files was
+    imported as MOD instead of XM.
+ *  SymMOD: Files containing more than 127 channels are no longer rejected. 
+ *  Better support for automatic slide commands (commands that keep sliding on
+    following rows) in various formats.
+ *  The pattern channel limit was raised from 127 to 192 for some formats.
+
+ *  xmp-openmpt: Memory consumption during file loading has been reduced.
 
 ### libopenmpt 0.7.0 (2023-04-30)
 
@@ -28,7 +90,8 @@ is just a high-level summary.
  *  [**New**] Can now read a variant of the DSMI AMF format called DMF, as found
     in various DOS games distributed by Webfoot (Tronic, H2O, PowBall, etc.).
  *  [**New**] `DSM` files from Dynamic Studio are now supported.
- *  [**New**] `XMF` files from the DOS game Imperium Galactica are now supported.
+ *  [**New**] `XMF` files from the DOS game Imperium Galactica are now
+    supported.
  *  [**New**] Can now read the hacked MOD format (`DMF`) from the game
     "Apocalypse Abyss".
  *  [**New**] libopenmpt: New APIs for getting the current tempo as a floating
@@ -161,7 +224,8 @@ is just a high-level summary.
     as IMF/ PTM note slides. Tone portamento is now synchronized correctly when
     seeking in DBM, 669 and MED with fast slides (first tick of portamento was
     previously not executed).
- *  The filter cutoff frequency is no longer rounded to integer frequency values.
+ *  The filter cutoff frequency is no longer rounded to integer frequency
+    values.
  *  MED: Tempos higher than 255 BPM can now be imported in pattern data.
  *  MED: MMD1 files with more than 16 channels are now supported.
  *  ULT: Import 8-bit volume commands with full precision.
@@ -170,7 +234,8 @@ is just a high-level summary.
  *  S3M: Better approximation of old "stereo control" SAx command used in
     Purple Motion's PANIC.S3M.
  *  S3M: In ScreamTracker 3.03 and later, OPL notes with tone portamento next to
-    them are delayed until the next row and then the new pitch is used instantly.
+    them are delayed until the next row and then the new pitch is used
+    instantly.
  *  MO3: Envelope sustain was not imported correctly if the source file was an
     XM.
  *  MOD: Lone instrument number with retrigger effect swap sample immediately.

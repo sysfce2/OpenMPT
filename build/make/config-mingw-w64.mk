@@ -13,21 +13,33 @@ else
 $(error unknown WINDOWS_ARCH)
 endif
 
+ifeq ($(WINDOWS_CRT),)
+MINGW_CRT = mingw32
+else ifeq ($(WINDOWS_CRT),crtdll)
+MINGW_CRT = mingw32crt
+else ifeq ($(WINDOWS_CRT),msvcrt)
+MINGW_CRT = mingw32
+else ifeq ($(WINDOWS_CRT),ucrt)
+MINGW_CRT = mingw32ucrt
+endif
+
 ifeq ($(origin CC),default)
-CC  = $(MINGW_ARCH)-w64-mingw32-gcc$(MINGW_FLAVOUR)
+CC  = $(MINGW_ARCH)-w64-$(MINGW_CRT)-gcc$(MINGW_FLAVOUR)
 endif
 ifeq ($(origin CXX),default)
-CXX = $(MINGW_ARCH)-w64-mingw32-g++$(MINGW_FLAVOUR)
+CXX = $(MINGW_ARCH)-w64-$(MINGW_CRT)-g++$(MINGW_FLAVOUR)
 endif
 ifeq ($(origin LD),default)
 LD  = $(CXX)
 endif
 ifeq ($(origin AR),default)
-AR  = $(MINGW_ARCH)-w64-mingw32-ar$(MINGW_FLAVOUR)
+AR  = $(MINGW_ARCH)-w64-$(MINGW_CRT)-ar$(MINGW_FLAVOUR)
 endif
 
 ifneq ($(STDCXX),)
 CXXFLAGS_STDCXX = -std=$(STDCXX) -fexceptions -frtti
+else ifeq ($(shell printf '\n' > bin/empty.cpp ; if $(CXX) -std=c++23 -c bin/empty.cpp -o bin/empty.out > /dev/null 2>&1 ; then echo 'c++23' ; fi ), c++23)
+CXXFLAGS_STDCXX = -std=c++23 -fexceptions -frtti
 else ifeq ($(shell printf '\n' > bin/empty.cpp ; if $(CXX) -std=c++20 -c bin/empty.cpp -o bin/empty.out > /dev/null 2>&1 ; then echo 'c++20' ; fi ), c++20)
 CXXFLAGS_STDCXX = -std=c++20 -fexceptions -frtti
 else
@@ -35,6 +47,10 @@ CXXFLAGS_STDCXX = -std=c++17 -fexceptions -frtti
 endif
 ifneq ($(STDC),)
 CFLAGS_STDC = -std=$(STDC)
+else ifeq ($(shell printf '\n' > bin/empty.c ; if $(CC) -std=c23 -c bin/empty.c -o bin/empty.out > /dev/null 2>&1 ; then echo 'c23' ; fi ), c23)
+CFLAGS_STDC = -std=c23
+else ifeq ($(shell printf '\n' > bin/empty.c ; if $(CC) -std=c18 -c bin/empty.c -o bin/empty.out > /dev/null 2>&1 ; then echo 'c18' ; fi ), c18)
+CFLAGS_STDC = -std=c18
 else ifeq ($(shell printf '\n' > bin/empty.c ; if $(CC) -std=c17 -c bin/empty.c -o bin/empty.out > /dev/null 2>&1 ; then echo 'c17' ; fi ), c17)
 CFLAGS_STDC = -std=c17
 else
@@ -45,10 +61,12 @@ CFLAGS += $(CFLAGS_STDC)
 
 CPPFLAGS += -DNOMINMAX
 ifeq ($(MINGW_COMPILER),clang)
+CPPFLAGS += -D_UNICODE
 CXXFLAGS += -municode
 CFLAGS   += -municode
 LDFLAGS  += -mconsole -mthreads
 else
+CPPFLAGS += -D_UNICODE
 CXXFLAGS += -municode -mthreads
 CFLAGS   += -municode -mthreads
 LDFLAGS  += -mconsole
@@ -107,6 +125,13 @@ else
 $(error unknown WINDOWS_VERSION)
 endif
 
+MPT_COMPILER_NOALLOCAH=1
+
+ifneq ($(MINGW_COMPILER),clang)
+# See <https://gcc.gnu.org/bugzilla/show_bug.cgi?id=115049>.
+MPT_COMPILER_NOIPARA=1
+endif
+
 ifeq ($(MINGW_COMPILER),clang)
 include build/make/warnings-clang.mk
 else
@@ -117,10 +142,14 @@ EXESUFFIX=.exe
 SOSUFFIX=.dll
 SOSUFFIXWINDOWS=1
 
+ALLOW_LGPL=0
+
 DYNLINK=0
 SHARED_LIB=1
 STATIC_LIB=0
 SHARED_SONAME=0
+
+ENABLE_DLL=1
 
 ifeq ($(HOST_FLAVOUR),MSYS2)
 
@@ -128,11 +157,19 @@ else
 
 IS_CROSS=1
 
+ifeq ($(ALLOW_LGPL),1)
+LOCAL_ZLIB=1
+LOCAL_MPG123=1
+LOCAL_OGG=1
+LOCAL_VORBIS=1
+else
 NO_ZLIB=1
 NO_MPG123=1
 NO_OGG=1
 NO_VORBIS=1
 NO_VORBISFILE=1
+endif
+
 NO_PORTAUDIO=1
 NO_PORTAUDIOCPP=1
 NO_PULSEAUDIO=1

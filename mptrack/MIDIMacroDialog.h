@@ -13,6 +13,8 @@
 #include "openmpt/all/BuildSettings.hpp"
 
 #include "ColourEdit.h"
+#include "DialogBase.h"
+#include "PluginComboBox.h"
 #include "../common/misc_util.h"
 #include "../soundlib/MIDIMacros.h"
 #include "mpt/base/alloc.hpp"
@@ -21,10 +23,11 @@ OPENMPT_NAMESPACE_BEGIN
 
 class CSoundFile;
 
-class CMidiMacroSetup: public CDialog
+class CMidiMacroSetup : public DialogBase
 {
 protected:
-	CComboBox m_CbnSFx, m_CbnSFxPreset, m_CbnZxx, m_CbnZxxPreset, m_CbnMacroPlug, m_CbnMacroParam, m_CbnMacroCC;
+	CComboBox m_CbnSFx, m_CbnSFxPreset, m_CbnZxx, m_CbnZxxPreset, m_CbnMacroParam, m_CbnMacroCC;
+	PluginComboBox m_CbnMacroPlug;
 	CEdit m_EditSFx, m_EditZxx;
 	struct MacroEdit
 	{
@@ -47,8 +50,6 @@ public:
 protected:
 	BOOL OnInitDialog() override;
 	void DoDataExchange(CDataExchange* pDX) override;
-
-	bool ValidateMacroString(CEdit &wnd, const MIDIMacroConfig::Macro &prevMacro, bool isParametric);
 
 	void UpdateMacroList(int macro=-1);
 	void ToggleBoxes(UINT preset, UINT sfx);

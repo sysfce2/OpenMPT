@@ -20,10 +20,10 @@ size_t Archive::ReadHeader()
     case RARFMT14:
       ReadSize=ReadHeader14();
       break;
-#endif
     case RARFMT15:
       ReadSize=ReadHeader15();
       break;
+#endif
     case RARFMT50:
       ReadSize=ReadHeader50();
       break;
@@ -106,6 +106,9 @@ void Archive::UnexpEndArcMsg()
   if (CurBlockPos!=ArcSize || NextBlockPos!=ArcSize)
   {
     uiMsg(UIERROR_UNEXPEOF,FileName);
+    if (CurHeaderType!=HEAD_FILE)
+      uiMsg(UIERROR_TRUNCSERVICE,FileName,SubHead.FileName);
+
     ErrHandler.SetErrorCode(RARX_WARNING);
   }
 }
@@ -122,7 +125,7 @@ void Archive::BrokenHeaderMsg()
 void Archive::UnkEncVerMsg(const std::wstring &Name,const std::wstring &Info)
 {
   uiMsg(UIERROR_UNKNOWNENCMETHOD,FileName,Name,Info);
-  ErrHandler.SetErrorCode(RARX_WARNING);
+  ErrHandler.SetErrorCode(RARX_FATAL);
 }
 
 
@@ -137,6 +140,7 @@ inline int64 SafeAdd(int64 v1,int64 v2,int64 f)
 }
 
 
+#ifndef SFX_MODULE
 size_t Archive::ReadHeader15()
 {
   RawRead Raw(this);
@@ -145,7 +149,7 @@ size_t Archive::ReadHeader15()
 
   if (Decrypt)
   {
-#ifdef RAR_NOCRYPT // For rarext.dll and unrar_nocrypt.dll.
+#ifdef RAR_NOCRYPT // For rarext.dll, Setup.SFX and unrar_nocrypt.dll.
     return 0;
 #else
     RequestArcPassword(NULL);
@@ -545,6 +549,7 @@ size_t Archive::ReadHeader15()
 
   return Raw.Size();
 }
+#endif // #ifndef SFX_MODULE
 
 
 size_t Archive::ReadHeader50()
@@ -587,10 +592,10 @@ size_t Archive::ReadHeader50()
       RequestArcPassword(CheckPwd.IsSet() ? &CheckPwd:NULL);
 
       byte PswCheck[SIZE_PSWCHECK];
-      HeadersCrypt.SetCryptKeys(false,CRYPT_RAR50,&Cmd->Password,CryptHead.Salt,HeadersInitV,CryptHead.Lg2Count,NULL,PswCheck);
+      bool EncSet=HeadersCrypt.SetCryptKeys(false,CRYPT_RAR50,&Cmd->Password,CryptHead.Salt,HeadersInitV,CryptHead.Lg2Count,NULL,PswCheck);
       // Verify password validity. If header is damaged, we cannot rely on
       // password check value, because it can be damaged too.
-      if (CryptHead.UsePswCheck && !BrokenHeader &&
+      if (EncSet && CryptHead.UsePswCheck && !BrokenHeader &&
           memcmp(PswCheck,CryptHead.PswCheck,SIZE_PSWCHECK)!=0)
       {
         if (GlobalPassword) // For -p<pwd> or Ctrl+P.
@@ -740,10 +745,15 @@ size_t Archive::ReadHeader50()
           byte csum[SIZE_PSWCHECK_CSUM];
           Raw.GetB(csum,SIZE_PSWCHECK_CSUM);
 
+// Exclude this code for rarext.dll, Setup.SFX and unrar_nocrypt.dll linked
+// without sha256. But still set Encrypted=true for rarext.dll here,
+// so it can recognize encrypted header archives in archive properties.
+#ifndef RAR_NOCRYPT
           byte Digest[SHA256_DIGEST_SIZE];
           sha256_get(CryptHead.PswCheck, SIZE_PSWCHECK, Digest);
 
           CryptHead.UsePswCheck=memcmp(csum,Digest,SIZE_PSWCHECK_CSUM)==0;
+#endif
         }
         Encrypted=true;
       }
@@ -1036,52 +1046,64 @@ void Archive::ProcessExtra50(RawRead *Raw,size_t ExtraSize,const BaseBlock *bb)
       FileHeader *hd=(FileHeader *)bb;
       switch(FieldType)
       {
+#ifndef RAR_NOCRYPT // Except rarext.dll, Setup.SFX and unrar_nocrypt.dll.
         case FHEXTRA_CRYPT:
           {
             FileHeader *hd=(FileHeader *)bb;
             uint EncVersion=(uint)Raw->GetV();
             if (EncVersion>CRYPT_VERSION)
+            {
               UnkEncVerMsg(hd->FileName,L"x" + std::to_wstring(EncVersion));
+              hd->CryptMethod=CRYPT_UNKNOWN;
+            }
             else
             {
               uint Flags=(uint)Raw->GetV();
-              hd->UsePswCheck=(Flags & FHEXTRA_CRYPT_PSWCHECK)!=0;
-              hd->UseHashKey=(Flags & FHEXTRA_CRYPT_HASHMAC)!=0;
               hd->Lg2Count=Raw->Get1();
               if (hd->Lg2Count>CRYPT5_KDF_LG2_COUNT_MAX)
-                UnkEncVerMsg(hd->FileName,L"xc" + std::to_wstring(hd->Lg2Count));
-              Raw->GetB(hd->Salt,SIZE_SALT50);
-              Raw->GetB(hd->InitV,SIZE_INITV);
-              if (hd->UsePswCheck)
               {
-                Raw->GetB(hd->PswCheck,SIZE_PSWCHECK);
-
-                // It is important to know if password check data is valid.
-                // If it is damaged and header CRC32 fails to detect it,
-                // archiver would refuse to decompress a possibly valid file.
-                // Since we want to be sure distinguishing a wrong password
-                // or corrupt file data, we use 64-bit password check data
-                // and to control its validity we use 32 bits of password
-                // check data SHA-256 additionally to 32-bit header CRC32.
-                byte csum[SIZE_PSWCHECK_CSUM];
-                Raw->GetB(csum,SIZE_PSWCHECK_CSUM);
-
-                byte Digest[SHA256_DIGEST_SIZE];
-                sha256_get(hd->PswCheck, SIZE_PSWCHECK, Digest);
-
-                hd->UsePswCheck=memcmp(csum,Digest,SIZE_PSWCHECK_CSUM)==0;
-
-                // RAR 5.21 and earlier set PswCheck field in service records to 0
-                // even if UsePswCheck was present.
-                if (bb->HeaderType==HEAD_SERVICE && memcmp(hd->PswCheck,"\0\0\0\0\0\0\0\0",SIZE_PSWCHECK)==0)
-                  hd->UsePswCheck=0;
+                UnkEncVerMsg(hd->FileName,L"xc" + std::to_wstring(hd->Lg2Count));
+                hd->CryptMethod=CRYPT_UNKNOWN;
               }
-              hd->SaltSet=true;
-              hd->CryptMethod=CRYPT_RAR50;
-              hd->Encrypted=true;
+              else
+              {
+                hd->UsePswCheck=(Flags & FHEXTRA_CRYPT_PSWCHECK)!=0;
+                hd->UseHashKey=(Flags & FHEXTRA_CRYPT_HASHMAC)!=0;
+
+                Raw->GetB(hd->Salt,SIZE_SALT50);
+                Raw->GetB(hd->InitV,SIZE_INITV);
+                if (hd->UsePswCheck)
+                {
+                  Raw->GetB(hd->PswCheck,SIZE_PSWCHECK);
+
+                  // It is important to know if password check data is valid.
+                  // If it is damaged and header CRC32 fails to detect it,
+                  // archiver would refuse to decompress a possibly valid file.
+                  // Since we want to be sure distinguishing a wrong password
+                  // or corrupt file data, we use 64-bit password check data
+                  // and to control its validity we use 32 bits of password
+                  // check data SHA-256 additionally to 32-bit header CRC32.
+                  byte csum[SIZE_PSWCHECK_CSUM];
+                  Raw->GetB(csum,SIZE_PSWCHECK_CSUM);
+
+                  byte Digest[SHA256_DIGEST_SIZE];
+                  sha256_get(hd->PswCheck, SIZE_PSWCHECK, Digest);
+
+                  hd->UsePswCheck=memcmp(csum,Digest,SIZE_PSWCHECK_CSUM)==0;
+
+                  // RAR 5.21 and earlier set PswCheck field in service records to 0
+                  // even if UsePswCheck was present.
+                  if (bb->HeaderType==HEAD_SERVICE && memcmp(hd->PswCheck,"\0\0\0\0\0\0\0\0",SIZE_PSWCHECK)==0)
+                    hd->UsePswCheck=0;
+                }
+                hd->SaltSet=true;
+                hd->CryptMethod=CRYPT_RAR50;
+                hd->Encrypted=true;
+              }
             }
           }
           break;
+#endif
         case FHEXTRA_HASH:
           {
             FileHeader *hd=(FileHeader *)bb;

@@ -17,6 +17,7 @@
 #include "Mainfrm.h"
 #include "Moddoc.h"
 #include "Mptrack.h"
+#include "resource.h"
 #include "TrackerSettings.h"
 #include "View_gen.h"
 #include "WindowMessages.h"
@@ -92,7 +93,7 @@ CCtrlGeneral::CCtrlGeneral(CModControlView &parent, CModDoc &document) : CModCon
 // Display range for XM / S3M should be 0...64, for other formats it's 0...256.
 uint32 CCtrlGeneral::GetGlobalVolumeFactor() const
 {
-	return (m_sndFile.GetType() & (MOD_TYPE_XM | MOD_TYPE_S3M)) ? uint32(MAX_SLIDER_GLOBAL_VOL / 64) : uint32(MAX_SLIDER_GLOBAL_VOL / 128);
+	return MAX_GLOBAL_VOLUME / m_sndFile.GlobalVolumeRange();
 }
 
 
@@ -108,7 +109,7 @@ BOOL CCtrlGeneral::OnInitDialog()
 	m_SpinVSTiVol.SetRange(0, 2000);
 	m_SpinRestartPos.SetRange32(0, ORDERINDEX_MAX);
 	
-	m_SliderGlobalVol.SetRange(0, MAX_SLIDER_GLOBAL_VOL);
+	m_SliderGlobalVol.SetRange(0, MAX_GLOBAL_VOLUME);
 	m_SliderVSTiVol.SetRange(0, MAX_SLIDER_VSTI_VOL);
 	m_SliderSamplePreAmp.SetRange(0, MAX_SLIDER_SAMPLE_VOL);
 
@@ -121,7 +122,7 @@ BOOL CCtrlGeneral::OnInitDialog()
 	m_editsLocked = false;
 	UpdateView(GeneralHint().ModType());
 	OnActivatePage(0);
-	m_bInitialized = TRUE;
+	m_initialized = true;
 	
 	return FALSE;
 }
@@ -146,7 +147,6 @@ void CCtrlGeneral::OnActivatePage(LPARAM)
 	m_modDoc.SetNotifications(Notification::Default);
 	m_modDoc.SetFollowWnd(m_hWnd);
 	PostViewMessage(VIEWMSG_SETACTIVE, NULL);
-	SetFocus();
 
 	// Combo boxes randomly disappear without this... why?
 	Invalidate();
@@ -243,7 +243,7 @@ void CCtrlGeneral::OnTapTempo()
 
 	double newTempo = 60.0 / secondsPerBeat;
 	if(m_sndFile.m_nTempoMode != TempoMode::Modern)
-		newTempo *= (m_sndFile.m_nDefaultSpeed * m_sndFile.m_nDefaultRowsPerBeat) / 24.0;
+		newTempo *= (m_sndFile.Order().GetDefaultSpeed() * m_sndFile.m_nDefaultRowsPerBeat) / 24.0;
 	if(!m_sndFile.GetModSpecifications().hasFractionalTempo)
 		newTempo = std::round(newTempo);
 	TEMPO t(newTempo);
@@ -260,6 +260,7 @@ void CCtrlGeneral::UpdateView(UpdateHint hint, CObject *pHint)
 
 	const auto resamplingModes = Resampling::AllModes();
 
+	LockControls();
 	if (hintType == HINT_MPTOPTIONS || updateAll)
 	{
 		CString defaultResampler;
@@ -291,7 +292,7 @@ void CCtrlGeneral::UpdateView(UpdateHint hint, CObject *pHint)
 		m_tempoMax = specs.GetTempoMax();
 		// IT Hack: There are legacy OpenMPT-made ITs out there which use a higher default speed than 255.
 		// Changing the upper tempo limit in the mod specs would break them, so do it here instead.
-		if(m_sndFile.GetType() == MOD_TYPE_IT && m_sndFile.m_nDefaultTempo <= TEMPO(255, 0))
+		if(m_sndFile.GetType() == MOD_TYPE_IT && m_sndFile.Order().GetDefaultTempo() <= TEMPO(255, 0))
 			m_tempoMax.Set(255);
 		// Lower resolution for BPM above 256
 		if(m_tempoMax >= TEMPO_SPLIT_THRESHOLD)
@@ -349,23 +350,31 @@ void CCtrlGeneral::UpdateView(UpdateHint hint, CObject *pHint)
 		m_SpinRestartPos.SetRange32(0, std::max(m_sndFile.Order().GetRestartPos(), static_cast<ORDERINDEX>(m_sndFile.Order().GetLengthTailTrimmed() - 1)));
 		SetDlgItemInt(IDC_EDIT_RESTARTPOS, m_sndFile.Order().GetRestartPos(), FALSE);
 	}
+
+	if(updateAll || (hint.GetCategory() == HINTCAT_GENERAL && hintType[HINT_MODGENERAL]) || (hint.GetCategory() == HINTCAT_SEQUENCE && hint.ToType<SequenceHint>().GetSequence() == SEQUENCEINDEX_INVALID))
+	{
+		if(!m_editsLocked)
+		{
+			m_EditTempo.SetTempoValue(m_sndFile.Order().GetDefaultTempo());
+			SetDlgItemInt(IDC_EDIT_SPEED, m_sndFile.Order().GetDefaultSpeed(), FALSE);
+		}
+		m_SliderTempo.SetPos(TempoToSlider(m_sndFile.Order().GetDefaultTempo()));
+	}
+
 	if (updateAll || (hint.GetCategory() == HINTCAT_GENERAL && hintType[HINT_MODGENERAL]))
 	{
 		if (!m_editsLocked)
 		{
 			m_EditTitle.SetWindowText(mpt::ToCString(m_sndFile.GetCharsetInternal(), m_sndFile.GetTitle()));
 			m_EditArtist.SetWindowText(mpt::ToCString(m_sndFile.m_songArtist));
-			m_EditTempo.SetTempoValue(m_sndFile.m_nDefaultTempo);
-			SetDlgItemInt(IDC_EDIT_SPEED, m_sndFile.m_nDefaultSpeed, FALSE);
 			SetDlgItemInt(IDC_EDIT_GLOBALVOL, m_sndFile.m_nDefaultGlobalVolume / GetGlobalVolumeFactor(), FALSE);
 			SetDlgItemInt(IDC_EDIT_VSTIVOL, m_sndFile.m_nVSTiVolume, FALSE);
 			SetDlgItemInt(IDC_EDIT_SAMPLEPA, m_sndFile.m_nSamplePreAmp, FALSE);
 		}
 
-		m_SliderGlobalVol.SetPos(MAX_SLIDER_GLOBAL_VOL - m_sndFile.m_nDefaultGlobalVolume);
+		m_SliderGlobalVol.SetPos(MAX_GLOBAL_VOLUME - m_sndFile.m_nDefaultGlobalVolume);
 		m_SliderVSTiVol.SetPos(MAX_SLIDER_VSTI_VOL - m_sndFile.m_nVSTiVolume);
 		m_SliderSamplePreAmp.SetPos(MAX_SLIDER_SAMPLE_VOL - m_sndFile.m_nSamplePreAmp);
-		m_SliderTempo.SetPos(TempoToSlider(m_sndFile.m_nDefaultTempo));
 	}
 
 	if(updateAll || hintType == HINT_MPTOPTIONS || (hint.GetCategory() == HINTCAT_GENERAL && hintType[HINT_MODGENERAL]))
@@ -386,23 +395,24 @@ void CCtrlGeneral::UpdateView(UpdateHint hint, CObject *pHint)
 		m_VuMeterLeft.InvalidateRect(NULL, FALSE);
 		m_VuMeterRight.InvalidateRect(NULL, FALSE);
 	}
+	UnlockControls();
 }
 
 
 void CCtrlGeneral::OnVScroll(UINT code, UINT pos, CScrollBar *pscroll)
 {
-	CDialog::OnVScroll(code, pos, pscroll);
+	CModControlDlg::OnVScroll(code, pos, pscroll);
 
-	if (m_bInitialized)
+	if (m_initialized)
 	{
 		CSliderCtrl* pSlider = (CSliderCtrl*) pscroll;
 
 		if (pSlider == &m_SliderTempo)
 		{
 			const TEMPO tempo = SliderToTempo(m_SliderTempo.GetPos());
-			if ((tempo >= m_sndFile.GetModSpecifications().GetTempoMin()) && (tempo <= m_sndFile.GetModSpecifications().GetTempoMax()) && (tempo != m_sndFile.m_nDefaultTempo))
+			if ((tempo >= m_sndFile.GetModSpecifications().GetTempoMin()) && (tempo <= m_sndFile.GetModSpecifications().GetTempoMax()) && (tempo != m_sndFile.Order().GetDefaultTempo()))
 			{
-				m_sndFile.m_nDefaultTempo = m_sndFile.m_PlayState.m_nMusicTempo = tempo;
+				m_sndFile.Order().SetDefaultTempo(m_sndFile.m_PlayState.m_nMusicTempo = tempo);
 				m_modDoc.SetModified();
 				m_modDoc.UpdateAllViews(nullptr, GeneralHint().General(), this);
 				m_EditTempo.SetTempoValue(tempo);
@@ -411,8 +421,8 @@ void CCtrlGeneral::OnVScroll(UINT code, UINT pos, CScrollBar *pscroll)
 
 		else if (pSlider == &m_SliderGlobalVol)
 		{
-			const UINT gv = MAX_SLIDER_GLOBAL_VOL - m_SliderGlobalVol.GetPos();
-			if ((gv >= 0) && (gv <= MAX_SLIDER_GLOBAL_VOL) && (gv != m_sndFile.m_nDefaultGlobalVolume))
+			const UINT gv = MAX_GLOBAL_VOLUME - m_SliderGlobalVol.GetPos();
+			if ((gv >= 0) && (gv <= MAX_GLOBAL_VOLUME) && (gv != m_sndFile.m_nDefaultGlobalVolume))
 			{
 				m_sndFile.m_PlayState.m_nGlobalVolume = gv;
 				m_sndFile.m_nDefaultGlobalVolume = gv;
@@ -456,16 +466,16 @@ void CCtrlGeneral::OnVScroll(UINT code, UINT pos, CScrollBar *pscroll)
 				pos32 *= TEMPO::fractFact;
 				if(m_sndFile.GetModSpecifications().hasFractionalTempo)
 				{
-					if(CMainFrame::GetMainFrame()->GetInputHandler()->CtrlPressed())
+					if(CInputHandler::CtrlPressed())
 						pos32 /= 100;
-					else if(CMainFrame::GetMainFrame()->GetInputHandler()->ShiftPressed())
+					else if(CInputHandler::ShiftPressed())
 						pos32 /= 10;
 				}
 				TEMPO newTempo;
 				newTempo.SetRaw(pos32);
-				newTempo += m_sndFile.m_nDefaultTempo;
+				newTempo += m_sndFile.Order().GetDefaultTempo();
 				Limit(newTempo, m_tempoMin, m_tempoMax);
-				m_sndFile.m_nDefaultTempo = m_sndFile.m_PlayState.m_nMusicTempo = newTempo;
+				m_sndFile.Order().SetDefaultTempo(m_sndFile.m_PlayState.m_nMusicTempo = newTempo);
 				m_modDoc.SetModified();
 				LockControls();
 				m_modDoc.UpdateAllViews(nullptr, GeneralHint().General(), this);
@@ -511,16 +521,16 @@ void CCtrlGeneral::OnArtistChanged()
 
 void CCtrlGeneral::OnTempoChanged()
 {
-	if (m_bInitialized && m_EditTempo.GetWindowTextLength() > 0)
+	if (m_initialized && m_EditTempo.GetWindowTextLength() > 0 && !IsLocked())
 	{
 		TEMPO tempo = m_EditTempo.GetTempoValue();
 		Limit(tempo, m_tempoMin, m_tempoMax);
 		if(!m_sndFile.GetModSpecifications().hasFractionalTempo) tempo.Set(tempo.GetInt());
-		if (tempo != m_sndFile.m_nDefaultTempo)
+		if (tempo != m_sndFile.Order().GetDefaultTempo())
 		{
 			m_editsLocked = true;
 			m_EditTempo.SetModify(FALSE);
-			m_sndFile.m_nDefaultTempo = tempo;
+			m_sndFile.Order().SetDefaultTempo(tempo);
 			m_sndFile.m_PlayState.m_nMusicTempo = tempo;
 			m_modDoc.SetModified();
 			m_modDoc.UpdateAllViews(nullptr, GeneralHint().General());
@@ -533,18 +543,18 @@ void CCtrlGeneral::OnTempoChanged()
 void CCtrlGeneral::OnSpeedChanged()
 {
 	TCHAR s[16];
-	if(m_bInitialized)
+	if(m_initialized)
 	{
 		m_EditSpeed.GetWindowText(s, mpt::saturate_cast<int>(std::size(s)));
 		if (s[0])
 		{
 			UINT n = mpt::parse<UINT>(s);
 			n = Clamp(n, m_sndFile.GetModSpecifications().speedMin, m_sndFile.GetModSpecifications().speedMax);
-			if (n != m_sndFile.m_nDefaultSpeed)
+			if (n != m_sndFile.Order().GetDefaultSpeed())
 			{
 				m_editsLocked = true;
 				m_EditSpeed.SetModify(FALSE);
-				m_sndFile.m_nDefaultSpeed = n;
+				m_sndFile.Order().SetDefaultSpeed(n);
 				m_sndFile.m_PlayState.m_nMusicSpeed = n;
 				m_modDoc.SetModified();
 				m_modDoc.UpdateAllViews(nullptr, GeneralHint().General(), this);
@@ -560,13 +570,13 @@ void CCtrlGeneral::OnSpeedChanged()
 void CCtrlGeneral::OnVSTiVolChanged()
 {
 	TCHAR s[16];
-	if (m_bInitialized)
+	if (m_initialized)
 	{
 		m_EditVSTiVol.GetWindowText(s, mpt::saturate_cast<int>(std::size(s)));
 		if (s[0])
 		{
-			UINT n = mpt::parse<UINT>(s);
-			Limit(n, 0u, 2000u);
+			uint32 n = mpt::parse<uint32>(s);
+			Limit(n, uint32(0), MAX_PREAMP);
 			if (n != m_sndFile.m_nVSTiVolume)
 			{
 				m_editsLocked = true;
@@ -584,13 +594,13 @@ void CCtrlGeneral::OnVSTiVolChanged()
 void CCtrlGeneral::OnSamplePAChanged()
 {
 	TCHAR s[16];
-	if(m_bInitialized)
+	if(m_initialized)
 	{
 		m_EditSamplePA.GetWindowText(s, mpt::saturate_cast<int>(std::size(s)));
 		if (s[0])
 		{
-			UINT n = mpt::parse<UINT>(s);
-			Limit(n, 0u, 2000u);
+			uint32 n = mpt::parse<uint32>(s);
+			Limit(n, uint32(0), MAX_PREAMP);
 			if (n != m_sndFile.m_nSamplePreAmp)
 			{
 				m_editsLocked = true;
@@ -607,7 +617,7 @@ void CCtrlGeneral::OnSamplePAChanged()
 void CCtrlGeneral::OnGlobalVolChanged()
 {
 	TCHAR s[16];
-	if(m_bInitialized)
+	if(m_initialized)
 	{
 		m_EditGlobalVol.GetWindowText(s, mpt::saturate_cast<int>(std::size(s)));
 		if (s[0])
@@ -632,7 +642,7 @@ void CCtrlGeneral::OnGlobalVolChanged()
 
 void CCtrlGeneral::OnRestartPosChanged()
 {
-	if(!m_bInitialized)
+	if(!m_initialized)
 		return;
 	TCHAR s[32];
 	m_EditRestartPos.GetWindowText(s, mpt::saturate_cast<int>(std::size(s)));
@@ -656,7 +666,7 @@ void CCtrlGeneral::OnRestartPosChanged()
 
 void CCtrlGeneral::OnRestartPosDone()
 {
-	if(m_bInitialized)
+	if(m_initialized)
 		SetDlgItemInt(IDC_EDIT_RESTARTPOS, m_sndFile.Order().GetRestartPos());
 }
 
@@ -685,49 +695,50 @@ LRESULT CCtrlGeneral::OnUpdatePosition(WPARAM, LPARAM lParam)
 }
 
 
-BOOL CCtrlGeneral::GetToolTipText(UINT uId, LPTSTR pszText)
+CString CCtrlGeneral::GetToolTipText(UINT uId, HWND) const
 {
-	const TCHAR moreRecentMixModeNote[] = _T("Use a more recent mixmode to see dB offsets.");
-	if ((pszText) && (uId))
+	CString s;
+	if(uId)
 	{
+		const TCHAR moreRecentMixModeNote[] = _T("Use a more recent mixmode to see dB offsets.");
 		const bool displayDBValues = m_sndFile.GetPlayConfig().getDisplayDBValues();
 		const CWnd *wnd = GetDlgItem(uId);
 		const bool isEnabled = wnd ? (wnd->IsWindowEnabled() != FALSE) : true;  // nullptr check is for a Wine bug workaround (https://bugs.openmpt.org/view.php?id=1553)
-		mpt::tstring notAvailable;
+		CString notAvailable;
 		if(!isEnabled)
-			notAvailable = MPT_TFORMAT("Feature is not available in the {} format.")(mpt::ToWin(m_sndFile.GetModSpecifications().GetFileExtensionUpper()));
+			notAvailable = MPT_CFORMAT("Feature is not available in the {} format.")(mpt::ToWin(m_sndFile.GetModSpecifications().GetFileExtensionUpper()));
 
 		switch(uId)
 		{
 		case IDC_BUTTON_MODTYPE:
-			_tcscpy(pszText, _T("Song Properties"));
+			s = _T("Song Properties");
 			{
 				const auto keyText = CMainFrame::GetInputHandler()->m_activeCommandSet->GetKeyTextFromCommand(kcViewSongProperties, 0);
 				if (!keyText.IsEmpty())
-					_tcscat(pszText, MPT_TFORMAT(" ({})")(keyText).c_str());
+					s +=  MPT_CFORMAT(" ({})")(keyText);
 			}
-			return TRUE;
+			break;
 		case IDC_BUTTON1:
 			if(isEnabled)
-				_tcscpy(pszText, _T("Click button multiple times to tap in the desired tempo."));
+				s = _T("Click button multiple times to tap in the desired tempo.");
 			else
-				_tcscpy(pszText, notAvailable.c_str());
-			return TRUE;
+				s = notAvailable;
+			break;
 		case IDC_SLIDER_SAMPLEPREAMP:
-			_tcscpy(pszText, displayDBValues ? CModDoc::LinearToDecibels(m_sndFile.m_nSamplePreAmp, m_sndFile.GetPlayConfig().getNormalSamplePreAmp()).GetString() : moreRecentMixModeNote);
-			return TRUE;
+			s = displayDBValues ? CModDoc::LinearToDecibels(m_sndFile.m_nSamplePreAmp, m_sndFile.GetPlayConfig().getNormalSamplePreAmp()).GetString() : moreRecentMixModeNote;
+			break;
 		case IDC_SLIDER_VSTIVOL:
 			if(isEnabled)
-				_tcscpy(pszText, displayDBValues ? CModDoc::LinearToDecibels(m_sndFile.m_nVSTiVolume, m_sndFile.GetPlayConfig().getNormalVSTiVol()).GetString() : moreRecentMixModeNote);
+				s = displayDBValues ? CModDoc::LinearToDecibels(m_sndFile.m_nVSTiVolume, m_sndFile.GetPlayConfig().getNormalVSTiVol()).GetString() : moreRecentMixModeNote;
 			else
-				_tcscpy(pszText, notAvailable.c_str());
-			return TRUE;
+				s = notAvailable;
+			break;
 		case IDC_SLIDER_GLOBALVOL:
 			if(isEnabled)
-				_tcscpy(pszText, displayDBValues ? CModDoc::LinearToDecibels(m_sndFile.m_PlayState.m_nGlobalVolume, m_sndFile.GetPlayConfig().getNormalGlobalVol()).GetString() : moreRecentMixModeNote);
+				s = displayDBValues ? CModDoc::LinearToDecibels(m_sndFile.m_PlayState.m_nGlobalVolume, m_sndFile.GetPlayConfig().getNormalGlobalVol()).GetString() : moreRecentMixModeNote;
 			else
-				_tcscpy(pszText, notAvailable.c_str());
-			return TRUE;
+				s = notAvailable;
+			break;
 		case IDC_SLIDER_SONGTEMPO:
 		case IDC_EDIT_ARTIST:
 		case IDC_EDIT_TEMPO:
@@ -737,11 +748,11 @@ BOOL CCtrlGeneral::GetToolTipText(UINT uId, LPTSTR pszText)
 		case IDC_EDIT_VSTIVOL:
 			if(isEnabled)
 				break;
-			_tcscpy(pszText, notAvailable.c_str());
-			return TRUE;
+			s = notAvailable;
+			break;
 		}
 	}
-	return FALSE;
+	return s;
 	
 }
 

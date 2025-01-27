@@ -19,7 +19,7 @@
 	}
 	
 	files {
-		"../../test/libopenmpt_test.manifest",
+		"../../libopenmpt/libopenmpt_test/libopenmpt_test.manifest",
 	}
   includedirs {
    "../..",
@@ -44,6 +44,9 @@
    "../../sounddsp/*.h",
    "../../test/*.cpp",
    "../../test/*.h",
+   "../../unarchiver/archive.h",
+   "../../unarchiver/ungzip.cpp",
+   "../../unarchiver/ungzip.h",
    "../../libopenmpt/libopenmpt.h",
    "../../libopenmpt/libopenmpt.hpp",
    "../../libopenmpt/libopenmpt_config.h",
@@ -64,6 +67,7 @@
    "../../libopenmpt/libopenmpt_cxx.cpp",
    "../../libopenmpt/libopenmpt_ext_impl.cpp",
    "../../libopenmpt/libopenmpt_impl.cpp",
+   "../../libopenmpt/libopenmpt_test/libopenmpt_test.cpp",
   }
 	excludes {
 		"../../src/mpt/crypto/**.cpp",
@@ -80,6 +84,8 @@
 		"../../test/mpt_tests_uuid_namespace.cpp",
 		"../../src/openmpt/sounddevice/**.cpp",
 		"../../src/openmpt/sounddevice/**.hpp",
+		"../../src/openmpt/streamencoder/**.cpp",
+		"../../src/openmpt/streamencoder/**.hpp",
 	}
 
 	if _OPTIONS["charset"] ~= "Unicode" then

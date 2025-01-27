@@ -11,19 +11,22 @@
 
 #include "stdafx.h"
 #include "View_smp.h"
-#include "ChannelManagerDlg.h"
 #include "Childfrm.h"
 #include "Clipboard.h"
 #include "Ctrl_smp.h"
+#include "dlg_misc.h"  // CInputDlg
 #include "Dlsbank.h"
 #include "Globals.h"
+#include "HighDPISupport.h"
 #include "ImageLists.h"
 #include "InputHandler.h"
 #include "Mainfrm.h"
 #include "Moddoc.h"
 #include "Mptrack.h"
+#include "MPTrackUtil.h"
 #include "OPLInstrDlg.h"
 #include "Reporting.h"
+#include "resource.h"
 #include "SampleEditorDialogs.h"
 #include "WindowMessages.h"
 #include "../common/FileReader.h"
@@ -45,16 +48,16 @@ OPENMPT_NAMESPACE_BEGIN
 
 
 // Non-client toolbar
-#define SMP_LEFTBAR_CY    Util::ScalePixels(29, m_hWnd)
-#define SMP_LEFTBAR_CXSEP Util::ScalePixels(14, m_hWnd)
-#define SMP_LEFTBAR_CXSPC Util::ScalePixels(3, m_hWnd)
-#define SMP_LEFTBAR_CXBTN Util::ScalePixels(24, m_hWnd)
-#define SMP_LEFTBAR_CYBTN Util::ScalePixels(22, m_hWnd)
+#define SMP_LEFTBAR_CY    HighDPISupport::ScalePixels(29, m_hWnd)
+#define SMP_LEFTBAR_CXSEP HighDPISupport::ScalePixels(14, m_hWnd)
+#define SMP_LEFTBAR_CXSPC HighDPISupport::ScalePixels(3, m_hWnd)
+#define SMP_LEFTBAR_CXBTN HighDPISupport::ScalePixels(24, m_hWnd)
+#define SMP_LEFTBAR_CYBTN HighDPISupport::ScalePixels(22, m_hWnd)
 static constexpr int TIMELINE_HEIGHT = 26;
 
 static int TimelineHeight(HWND hwnd)
 {
-	auto height = Util::ScalePixels(TIMELINE_HEIGHT, hwnd);
+	auto height = HighDPISupport::ScalePixels(TIMELINE_HEIGHT, hwnd);
 	if(height % 2)
 		height++;  // Avoid weird-looking triangles if timeline is scaled to odd height
 	return height;
@@ -101,7 +104,7 @@ BEGIN_MESSAGE_MAP(CViewSample, CModScrollView)
 	ON_WM_NCLBUTTONDOWN()
 	ON_WM_NCLBUTTONUP()
 	ON_WM_NCLBUTTONDBLCLK()
-	ON_WM_RBUTTONDOWN()
+	ON_WM_RBUTTONUP()
 	ON_WM_CHAR()
 	ON_WM_DROPFILES()
 	ON_WM_MOUSEWHEEL()
@@ -166,7 +169,6 @@ CViewSample::CViewSample()
 {
 	MemsetZero(m_NcButtonState);
 	m_dwNotifyPos.fill(Notification::PosInvalid);
-	m_bmpEnvBar.Create(&CMainFrame::GetMainFrame()->m_SampleIcons);
 }
 
 
@@ -278,7 +280,7 @@ void CViewSample::UpdateScrollSize(int newZoom, bool forceRefresh, SmpLength cen
 		return;
 
 	const TimelineFormat format = TrackerSettings::Instance().sampleEditorTimelineFormat;
-	double timelineInterval = MulDiv(150, m_nDPIx, 96);  // Timeline interval should be around 150 pixels
+	double timelineInterval = MulDiv(150, m_dpi, 96);  // Timeline interval should be around 150 pixels
 	if(m_nZoom > 0)
 		timelineInterval *= 1 << (m_nZoom - 1);
 	else if(m_nZoom < 0)
@@ -294,7 +296,7 @@ void CViewSample::UpdateScrollSize(int newZoom, bool forceRefresh, SmpLength cen
 	m_timelineUnit = mpt::saturate_round<int>(std::log(static_cast<double>(timelineInterval)) / std::log(power));
 	if(m_timelineUnit < 1)
 		m_timelineUnit = 0;
-	m_timelineUnit = mpt::saturate_cast<int>(std::pow(power, m_timelineUnit));
+	m_timelineUnit = mpt::saturate_trunc<int>(std::pow(power, m_timelineUnit));
 	timelineInterval = std::max(1.0, std::round(timelineInterval / m_timelineUnit)) * m_timelineUnit;
 	if(format == TimelineFormat::Seconds)
 		timelineInterval *= sampleRate / 1000.0;
@@ -414,37 +416,36 @@ void CViewSample::UpdateOPLEditor()
 {
 	if(!IsOPLInstrument())
 	{
-		if(m_oplEditor)
-			m_oplEditor->ShowWindow(SW_HIDE);
+		if(m_oplEditor && m_oplEditor->IsWindowVisible())
+		{
+			m_oplEditor->SetEnabled(false);
+			SetFocus();
+		}
 		return;
 	}
 	CSoundFile &sndFile = GetDocument()->GetSoundFile();
-	ModSample &sample = sndFile.GetSample(m_nSample);
-	if(sample.uFlags[CHN_ADLIB])
+	if(!m_oplEditor)
 	{
-		if(!m_oplEditor)
+		try
 		{
-			try
-			{
-				m_oplEditor = std::make_unique<OPLInstrDlg>(*this, sndFile);
-			} catch(mpt::out_of_memory e)
-			{
-				mpt::delete_out_of_memory(e);
-			}
-		}
-		if(m_oplEditor)
+			m_oplEditor = std::make_unique<OPLInstrDlg>(*this, sndFile);
+		} catch(mpt::out_of_memory e)
 		{
-			m_oplEditor->SetPatch(sample.adlib);
-			auto size = m_oplEditor->GetMinimumSize();
-			m_oplEditor->SetWindowPos(nullptr, -m_nScrollPosX, -m_nScrollPosY, std::max(size.cx, m_rcClient.right), std::max(size.cy, m_rcClient.bottom), SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+			mpt::delete_out_of_memory(e);
+			return;
 		}
 	}
+	m_oplEditor->SetPatch(sndFile.GetSample(m_nSample).adlib);
+	auto size = m_oplEditor->GetMinimumSize();
+	m_oplEditor->SetWindowPos(nullptr, -m_nScrollPosX, -m_nScrollPosY, std::max(size.cx, m_rcClient.right), std::max(size.cy, m_rcClient.bottom), SWP_NOZORDER | SWP_NOACTIVATE);
+	m_oplEditor->SetEnabled(true);
 }
 
 
+// cppcheck-suppress duplInheritedMember
 void CViewSample::OnSetFocus(CWnd *pOldWnd)
 {
-	CScrollView::OnSetFocus(pOldWnd);
+	CModScrollView::OnSetFocus(pOldWnd);
 	SetCurrentSample(m_nSample);
 }
 
@@ -661,7 +662,7 @@ std::pair<CViewSample::HitTestItem, SmpLength> CViewSample::PointToItem(CPoint p
 	const bool inTimeline = point.y < m_timelineHeight;
 	if(m_dwEndSel > m_dwBeginSel && !inTimeline && !m_dwStatus[SMPSTATUS_DRAWING])
 	{
-		const int margin = Util::ScalePixels(5, m_hWnd);
+		const int margin = HighDPISupport::ScalePixels(5, m_hWnd);
 		if(HitTest(point.x, SampleToScreen(m_dwBeginSel), margin, margin, m_timelineHeight, m_rcClient.bottom, rect))
 			return {HitTestItem::SelectionStart, m_dwBeginSel};
 		if(HitTest(point.x, SampleToScreen(m_dwEndSel), margin, margin, m_timelineHeight, m_rcClient.bottom, rect))
@@ -728,7 +729,7 @@ LRESULT CViewSample::OnModViewMsg(WPARAM wParam, LPARAM lParam)
 	case VIEWMSG_LOADSTATE:
 		if (lParam)
 		{
-			SAMPLEVIEWSTATE *pState = (SAMPLEVIEWSTATE *)lParam;
+			SampleViewState *pState = (SampleViewState *)lParam;
 			if (pState->nSample == m_nSample)
 			{
 				SetCurSel(pState->dwBeginSel, pState->dwEndSel);
@@ -742,7 +743,7 @@ LRESULT CViewSample::OnModViewMsg(WPARAM wParam, LPARAM lParam)
 	case VIEWMSG_SAVESTATE:
 		if (lParam)
 		{
-			SAMPLEVIEWSTATE *pState = (SAMPLEVIEWSTATE *)lParam;
+			SampleViewState *pState = (SampleViewState *)lParam;
 			pState->dwScrollPos = m_nScrollPosX;
 			pState->dwBeginSel = m_dwBeginSel;
 			pState->dwEndSel = m_dwEndSel;
@@ -758,15 +759,6 @@ LRESULT CViewSample::OnModViewMsg(WPARAM wParam, LPARAM lParam)
 
 	case VIEWMSG_PREPAREUNDO:
 		GetDocument()->GetSampleUndo().PrepareUndo(m_nSample, sundo_none, "Edit OPL Patch");
-		break;
-
-	case VIEWMSG_SETFOCUS:
-	case VIEWMSG_SETACTIVE:
-		GetParentFrame()->SetActiveView(this);
-		if(IsOPLInstrument() && m_oplEditor)
-			m_oplEditor->SetFocus();
-		else
-			SetFocus();
 		break;
 
 	default:
@@ -1030,7 +1022,8 @@ void CViewSample::OnDraw(CDC *pDC)
 
 		NONCLIENTMETRICS metrics;
 		metrics.cbSize = sizeof(metrics);
-		SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0);
+		metrics.cbSize = sizeof(metrics);
+		HighDPISupport::SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, m_hWnd);
 		metrics.lfMessageFont.lfHeight = mpt::saturate_round<int>(metrics.lfMessageFont.lfHeight * 0.8);
 		metrics.lfMessageFont.lfWidth = mpt::saturate_round<int>(metrics.lfMessageFont.lfWidth * 0.8);
 		m_timelineFont.DeleteObject();
@@ -1070,7 +1063,7 @@ void CViewSample::OnDraw(CDC *pDC)
 		{
 			rc = timeline;
 			const auto sampleRate = sample.GetSampleRate(sndFile.GetType());
-			const int textOffset = Util::ScalePixels(4, m_hWnd);
+			const int textOffset = HighDPISupport::ScalePixels(4, m_hWnd);
 			mpt::tstring text;
 			for(int x = -(SampleToScreen(ScrollPosToSamplePos(), true) % m_timelineInterval); x < m_rcClient.right + m_timelineInterval; x += m_timelineInterval)
 			{
@@ -1391,30 +1384,10 @@ LRESULT CViewSample::OnPlayerNotify(Notification *pnotify)
 			if(m_nZoom != 0 && TrackerSettings::Instance().m_followSamplePlayCursor != FollowSamplePlayCursor::DoNotFollow)
 			{
 				// Scroll sample into view if it's not in the visible range
-				size_t count = 0;
-				SmpLength scrollToPos = 0;
-				bool backwards = false;
-				const auto &playChns = GetDocument()->GetSoundFile().m_PlayState.Chn;
-				for(CHANNELINDEX chn = 0; chn < MAX_CHANNELS; chn++)
+				const CHANNELINDEX previewChannel = GetPreviewChannel();
+				if(previewChannel != CHANNELINDEX_INVALID)
 				{
-					if(m_dwNotifyPos[chn] == Notification::PosInvalid)
-						continue;
-
-					// Only update based on notes triggered by this view
-					if(!playChns[chn].isPreviewNote)
-						continue;
-					if(!ModCommand::IsNote(playChns[chn].nNewNote) || m_noteChannel[playChns[chn].nNewNote - NOTE_MIN] != chn)
-						continue;
-
-					count++;
-					if(count > 1)
-						break;
-
-					scrollToPos = m_dwNotifyPos[chn];
-					backwards = playChns[chn].dwFlags[CHN_PINGPONGFLAG];
-				}
-				if(count == 1)
-				{
+					const SmpLength scrollToPos = m_dwNotifyPos[previewChannel];
 					const auto screenPos = SampleToScreen(scrollToPos);
 					const bool alwaysCenter = (TrackerSettings::Instance().m_followSamplePlayCursor == FollowSamplePlayCursor::FollowCentered);
 					if(alwaysCenter || screenPos < m_rcClient.left || screenPos >= m_rcClient.right)
@@ -1422,7 +1395,7 @@ LRESULT CViewSample::OnPlayerNotify(Notification *pnotify)
 						ScrollTarget target = ScrollTarget::Left;
 						if(alwaysCenter)
 							target = ScrollTarget::Center;
-						else if(backwards)
+						else if(GetDocument()->GetSoundFile().m_PlayState.Chn[previewChannel].dwFlags[CHN_PINGPONGFLAG])  // TODO: this should be taken via notification, not directly from player state
 							target = ScrollTarget::Right;
 						ScrollToSample(scrollToPos, true, target);
 					}
@@ -1435,6 +1408,31 @@ LRESULT CViewSample::OnPlayerNotify(Notification *pnotify)
 		}
 	}
 	return 0;
+}
+
+
+CHANNELINDEX CViewSample::GetPreviewChannel() const
+{
+	size_t count = 0;
+	CHANNELINDEX channel = CHANNELINDEX_INVALID;
+	const auto &playChns = GetDocument()->GetSoundFile().m_PlayState.Chn;
+	for(CHANNELINDEX chn = 0; chn < MAX_CHANNELS; chn++)
+	{
+		if(m_dwNotifyPos[chn] == Notification::PosInvalid)
+			continue;
+
+		// Only update based on notes triggered by this view
+		if(!playChns[chn].isPreviewNote)
+			continue;
+		if(!ModCommand::IsNote(playChns[chn].nNewNote) || m_noteChannel[playChns[chn].nNewNote - NOTE_MIN] != chn)
+			continue;
+
+		count++;
+		if(count > 1)
+			return CHANNELINDEX_INVALID;
+		channel = chn;
+	}
+	return channel;
 }
 
 
@@ -1495,6 +1493,7 @@ void CViewSample::DrawNcButton(CDC *pDC, UINT nBtn)
 	COLORREF crFc = GetSysColor(COLOR_3DFACE);
 	COLORREF c1, c2;
 
+	const bool flat = (TrackerSettings::Instance().patternSetup & PatternSetup::FlatToolbarButtons);
 	if(GetNcButtonRect(nBtn, rect))
 	{
 		DWORD dwStyle = m_NcButtonState[nBtn];
@@ -1502,24 +1501,24 @@ void CViewSample::DrawNcButton(CDC *pDC, UINT nBtn)
 		int xofs = 0, yofs = 0, nImage = 0;
 
 		c1 = c2 = c3 = c4 = crFc;
-		if (!(TrackerSettings::Instance().m_dwPatternSetup & PATTERN_FLATBUTTONS))
+		if(!flat)
 		{
 			c1 = c3 = crHi;
 			c2 = crDk;
 			c4 = RGB(0,0,0);
 		}
-		if (dwStyle & (NCBTNS_PUSHED|NCBTNS_CHECKED))
+		if(dwStyle & (NCBTNS_PUSHED | NCBTNS_CHECKED))
 		{
 			c1 = crDk;
 			c2 = crHi;
-			if (!(TrackerSettings::Instance().m_dwPatternSetup & PATTERN_FLATBUTTONS))
+			if(!flat)
 			{
 				c4 = crHi;
 				c3 = (dwStyle & NCBTNS_PUSHED) ? RGB(0,0,0) : crDk;
 			}
 			xofs = yofs = 1;
 		} else
-		if ((dwStyle & NCBTNS_MOUSEOVER) && (TrackerSettings::Instance().m_dwPatternSetup & PATTERN_FLATBUTTONS))
+		if((dwStyle & NCBTNS_MOUSEOVER) && flat)
 		{
 			c1 = crHi;
 			c2 = crDk;
@@ -1538,12 +1537,13 @@ void CViewSample::DrawNcButton(CDC *pDC, UINT nBtn)
 		pDC->FillSolidRect(&rect, crFc);
 		rect.left += xofs;
 		rect.top += yofs;
-		if (dwStyle & NCBTNS_CHECKED) m_bmpEnvBar.Draw(pDC, SIMAGE_CHECKED, rect.TopLeft(), ILD_NORMAL);
-		m_bmpEnvBar.Draw(pDC, nImage, rect.TopLeft(), ILD_NORMAL);
+		if(dwStyle & NCBTNS_CHECKED)
+			CMainFrame::GetMainFrame()->m_SampleIcons.Draw(pDC, SIMAGE_CHECKED, rect.TopLeft(), ILD_NORMAL);
+		CMainFrame::GetMainFrame()->m_SampleIcons.Draw(pDC, nImage, rect.TopLeft(), ILD_NORMAL);
 	} else
 	{
 		c1 = c2 = crFc;
-		if (TrackerSettings::Instance().m_dwPatternSetup & PATTERN_FLATBUTTONS)
+		if(flat)
 		{
 			c1 = crDk;
 			c2 = crHi;
@@ -1832,7 +1832,7 @@ void CViewSample::OnMouseMove(UINT flags, CPoint point)
 			x = ScreenToSample(point.x);
 		} else if(m_fineDrag)
 		{
-			x = m_startDragValue + (point.x - m_startDragPoint.x) / Util::ScalePixels(2, m_hWnd);
+			x = m_startDragValue + (point.x - m_startDragPoint.x) / HighDPISupport::ScalePixels(2, m_hWnd);
 		} else if(dragItemIsInWaveform && (m_nZoom < 0 || (m_nZoom == 0 && sample.nLength < static_cast<SmpLength>(m_rcClient.Width()))))
 		{
 			// Don't adjust selection to mouse down point when zooming into the sample
@@ -1854,9 +1854,11 @@ void CViewSample::OnMouseMove(UINT flags, CPoint point)
 			m_startDragValue = ScreenToSample(point.x);
 		}
 
+		const bool moveLoop = (flags & MK_CONTROL);
 		bool update = false;
 		SmpLength *updateLoopPoint = nullptr;
 		const char *updateLoopDesc = nullptr;
+		SmpLength loopLength = 0;
 		switch(m_dragItem)
 		{
 		case HitTestItem::SelectionStart:
@@ -1869,28 +1871,50 @@ void CViewSample::OnMouseMove(UINT flags, CPoint point)
 			}
 			break;
 		case HitTestItem::LoopStart:
-			if(x < sample.nLoopEnd)
+			if(moveLoop)
+			{
+				updateLoopPoint = &sample.nLoopStart;
+				updateLoopDesc = "Move Loop";
+				loopLength = sample.nLoopEnd - sample.nLoopStart;
+			} else if(x < sample.nLoopEnd)
 			{
 				updateLoopPoint = &sample.nLoopStart;
 				updateLoopDesc = "Set Loop Start";
 			}
 			break;
 		case HitTestItem::LoopEnd:
-			if(x > sample.nLoopStart)
+			if(moveLoop)
+			{
+				updateLoopPoint = &sample.nLoopStart;
+				updateLoopDesc = "Move Loop";
+				loopLength = sample.nLoopEnd - sample.nLoopStart;
+				x = (x > loopLength) ? x - loopLength : 0;
+			} else if(x > sample.nLoopStart)
 			{
 				updateLoopPoint = &sample.nLoopEnd;
 				updateLoopDesc = "Set Loop End";
 			}
 			break;
 		case HitTestItem::SustainStart:
-			if(x < sample.nSustainEnd)
+			if(moveLoop)
+			{
+				updateLoopPoint = &sample.nSustainStart;
+				updateLoopDesc = "Move Sustain Loop";
+				loopLength = sample.nSustainEnd - sample.nSustainStart;
+			} else if(x < sample.nSustainEnd)
 			{
 				updateLoopPoint = &sample.nSustainStart;
 				updateLoopDesc = "Set Sustain Start";
 			}
 			break;
 		case HitTestItem::SustainEnd:
-			if(x > sample.nSustainStart)
+			if(moveLoop)
+			{
+				updateLoopPoint = &sample.nSustainStart;
+				updateLoopDesc = "Move Loop";
+				loopLength = sample.nSustainEnd - sample.nSustainStart;
+				x = (x > loopLength) ? x - loopLength : 0;
+			} else if(x > sample.nSustainStart)
 			{
 				updateLoopPoint = &sample.nSustainEnd;
 				updateLoopDesc = "Set Sustain End";
@@ -1906,6 +1930,9 @@ void CViewSample::OnMouseMove(UINT flags, CPoint point)
 			break;
 		}
 
+		if(loopLength)
+			LimitMax(x, sample.nLength - loopLength);
+
 		if(updateLoopPoint && updateLoopDesc && *updateLoopPoint != x)
 		{
 			if(!m_dragPreparedUndo)
@@ -1913,6 +1940,10 @@ void CViewSample::OnMouseMove(UINT flags, CPoint point)
 			m_dragPreparedUndo = true;
 			update = true;
 			*updateLoopPoint = x;
+			if(loopLength && updateLoopPoint == &sample.nLoopStart)
+				sample.nLoopEnd = sample.nLoopStart + loopLength;
+			else if(loopLength && updateLoopPoint == &sample.nSustainStart)
+				sample.nSustainEnd = sample.nSustainStart + loopLength;
 			sample.PrecomputeLoops(sndFile, true);
 			SetModified(SampleHint().Info(), true, false);
 		}
@@ -2047,7 +2078,7 @@ void CViewSample::OnLButtonDown(UINT flags, CPoint point)
 	} else
 	{
 		// ctrl + click = play from cursor pos
-		if(flags & MK_CONTROL)
+		if((flags & MK_CONTROL) && point.y >= m_timelineHeight)
 			PlayNote(NOTE_MIDDLEC, ScreenToSample(point.x));
 	}
 }
@@ -2164,7 +2195,7 @@ void CViewSample::OnLButtonDblClk(UINT, CPoint pt)
 }
 
 
-void CViewSample::OnRButtonDown(UINT, CPoint pt)
+void CViewSample::OnRButtonUp(UINT, CPoint pt)
 {
 	CModDoc *pModDoc = GetDocument();
 	if(pModDoc)
@@ -2716,6 +2747,7 @@ void CViewSample::DoPaste(PasteMode pasteMode)
 			int16 *pNewSample = static_cast<int16 *>(ModSample::AllocateSample(newLength, 2u * newNumChannels));
 			if(pNewSample == nullptr)
 			{
+				cs.Leave();
 				ErrorBox(IDS_ERR_OUTOFMEMORY, this);
 				ok = false;
 			} else
@@ -2795,6 +2827,7 @@ void CViewSample::DoPaste(PasteMode pasteMode)
 		{
 			SetCurSel(selBegin, selEnd);
 			sample.PrecomputeLoops(sndFile, true);
+			cs.Leave();
 			SetModified(SampleHint().Info().Data().Names(), true, false);
 			if(pasteMode == PasteMode::Replace)
 			{
@@ -3133,7 +3166,7 @@ BOOL CViewSample::OnDragonDrop(BOOL doDrop, const DRAGONDROP *dropInfo)
 		break;
 	}
 	
-	bool insertNew = CMainFrame::GetInputHandler()->ShiftPressed();
+	bool insertNew = CInputHandler::ShiftPressed();
 	if(dropInfo->insertType != DRAGONDROP::InsertType::Unspecified)
 		insertNew = dropInfo->insertType == DRAGONDROP::InsertType::InsertNew;
 
@@ -3664,13 +3697,6 @@ BOOL CViewSample::PreTranslateMessage(MSG *pMsg)
 			const auto event = ih->Translate(*pMsg);
 			if (ih->KeyEvent(kCtxViewSamples, event) != kcNull)
 				return true; // Mapped to a command, no need to pass message on.
-
-			// Handle Application (menu) key
-			if(pMsg->message == WM_KEYDOWN && event.key == VK_APPS)
-			{
-				int x = Util::ScalePixels(32, m_hWnd);
-				OnRButtonDown(0, CPoint(x, x));
-			}
 		}
 
 	}
@@ -3687,6 +3713,8 @@ LRESULT CViewSample::OnCustomKeyMsg(WPARAM wParam, LPARAM lParam)
 
 	switch(wParam)
 	{
+		case kcContextMenu: OnRButtonUp(0, CPoint(0, TimelineHeight(m_hWnd))); return wParam;
+
 		case kcSampleTrim:			TrimSample(false); return wParam;
 		case kcSampleTrimToLoopEnd:	TrimSample(true); return wParam;
 		case kcSampleZoomUp:		OnZoomUp(); return wParam;
@@ -3827,15 +3855,35 @@ LRESULT CViewSample::OnCustomKeyMsg(WPARAM wParam, LPARAM lParam)
 		}
 	} else if(wParam >= kcStartSampleCues && wParam <= kcEndSampleCues)
 	{
-		const ModSample &sample = sndFile.GetSample(m_nSample);
-		SmpLength offset = sample.cues[wParam - kcStartSampleCues];
-		if(offset < sample.nLength)
-			PlayNote(NOTE_MIDDLEC, offset);
+		PlayOrSetCuePoint(wParam - kcStartSampleCues);
 		return wParam;
 	}
 
 	// Pass on to ctrl_smp
 	return GetControlDlg()->SendMessage(WM_MOD_KEYCOMMAND, wParam, lParam);
+}
+
+
+void CViewSample::PlayOrSetCuePoint(size_t cue)
+{
+	CModDoc *modDoc = GetDocument();
+	if(modDoc == nullptr)
+		return;
+	CSoundFile &sndFile = modDoc->GetSoundFile();
+	ModSample &sample = sndFile.GetSample(m_nSample);
+	SmpLength offset = sample.cues[cue];
+	if(offset < sample.nLength)
+	{
+		PlayNote(NOTE_MIDDLEC, offset);
+		return;
+	}
+
+	const CHANNELINDEX previewChannel = GetPreviewChannel();
+	if(previewChannel == CHANNELINDEX_INVALID)
+		return;
+	modDoc->GetSampleUndo().PrepareUndo(m_nSample, sundo_none, "Set Cue Point");
+	sample.cues[cue] = m_dwNotifyPos[previewChannel];
+	SetModified(SampleHint().Info(), true, false);
 }
 
 

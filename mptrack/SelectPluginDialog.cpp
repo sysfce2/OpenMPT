@@ -16,6 +16,7 @@
 #include "SelectPluginDialog.h"
 #include "FileDialog.h"
 #include "FolderScanner.h"
+#include "HighDPISupport.h"
 #include "ImageLists.h"
 #include "InputHandler.h"
 #include "Mainfrm.h"
@@ -100,12 +101,11 @@ BOOL CSelectPluginDlg::OnInitDialog()
 		::EnableWindow(::GetDlgItem(m_hWnd, IDOK), FALSE);
 	}
 
-	const int dpiX = Util::GetDPIx(m_hWnd);
-	const int dpiY = Util::GetDPIy(m_hWnd);
+	const int dpi = HighDPISupport::GetDpiForWindow(m_hWnd);
 	CRect rect
 	(
-		CPoint(MulDiv(TrackerSettings::Instance().gnPlugWindowX, dpiX, 96), MulDiv(TrackerSettings::Instance().gnPlugWindowY, dpiY, 96)),
-		CSize(MulDiv(TrackerSettings::Instance().gnPlugWindowWidth, dpiX, 96), MulDiv(TrackerSettings::Instance().gnPlugWindowHeight, dpiY, 96))
+		CPoint(MulDiv(TrackerSettings::Instance().gnPlugWindowX, dpi, 96), MulDiv(TrackerSettings::Instance().gnPlugWindowY, dpi, 96)),
+		CSize(MulDiv(TrackerSettings::Instance().gnPlugWindowWidth, dpi, 96), MulDiv(TrackerSettings::Instance().gnPlugWindowHeight, dpi, 96))
 	);
 	::MapWindowPoints(GetParent()->m_hWnd, HWND_DESKTOP, (CPoint *)&rect, 2);
 	WINDOWPLACEMENT wnd;
@@ -118,6 +118,15 @@ BOOL CSelectPluginDlg::OnInitDialog()
 	UpdatePluginsList();
 	OnSelChanged(NULL, NULL);
 	return TRUE;
+}
+
+
+void CSelectPluginDlg::OnDPIChanged()
+{
+	DialogBase::OnDPIChanged();
+	// TODO: Icon scaling will be wrong if main window is on a screen with different DPI
+	m_treePlugins.SetImageList(&CMainFrame::GetMainFrame()->m_MiscIcons, TVSIL_NORMAL);
+	m_treePlugins.SetIndent(0);
 }
 
 
@@ -156,6 +165,7 @@ void CSelectPluginDlg::OnOK()
 				m_pPlugin->SetOutputPlugin(oldOutput);
 			m_pPlugin->Info.dwPluginId1 = pFactory->pluginId1;
 			m_pPlugin->Info.dwPluginId2 = pFactory->pluginId2;
+			m_pPlugin->Info.shellPluginID = pFactory->shellPluginID;
 			m_pPlugin->editorX = m_pPlugin->editorY = int32_min;
 			m_pPlugin->SetAutoSuspend(TrackerSettings::Instance().enableAutoSuspend);
 
@@ -166,7 +176,7 @@ void CSelectPluginDlg::OnOK()
 				{
 					// Enable drymix by default for these known plugins
 				case Vst::FourCC("Scop"):
-					m_pPlugin->SetWetMix();
+					m_pPlugin->SetDryMix();
 					break;
 				}
 			}
@@ -189,6 +199,8 @@ void CSelectPluginDlg::OnOK()
 					{
 						m_pPlugin->Info.szName = mpt::ToCharset(mpt::Charset::Locale, name);
 					}
+					m_pPlugin->SetDryMix(p->IsInstrument());
+
 					// Check if plugin slot is already assigned to any instrument, and if not, create one.
 					if(p->IsInstrument() && m_pModDoc->HasInstrumentForPlugin(m_nPlugSlot) == INSTRUMENTINDEX_INVALID)
 					{
@@ -214,7 +226,7 @@ void CSelectPluginDlg::OnOK()
 	if(changed)
 	{
 		if(m_pPlugin->Info.dwPluginId2)
-			TrackerSettings::Instance().gnPlugWindowLast = m_pPlugin->Info.dwPluginId2;
+			TrackerSettings::Instance().lastSelectedPlugin = {static_cast<uint32>(m_pPlugin->Info.dwPluginId1), static_cast<uint32>(m_pPlugin->Info.dwPluginId2), m_pPlugin->Info.shellPluginID};
 		if(m_pModDoc)
 		{
 			m_pModDoc->UpdateAllViews(nullptr, PluginHint(static_cast<PLUGINDEX>(m_nPlugSlot + 1)).Info().Names());
@@ -252,12 +264,10 @@ void CSelectPluginDlg::SaveWindowPos() const
 	GetWindowPlacement(&wnd);
 	CRect rect = wnd.rcNormalPosition;
 	::MapWindowPoints(HWND_DESKTOP, GetParent()->m_hWnd, (CPoint *)&rect, 2);
-	const int dpiX = Util::GetDPIx(m_hWnd);
-	const int dpiY = Util::GetDPIy(m_hWnd);
-	TrackerSettings::Instance().gnPlugWindowX = MulDiv(rect.left, 96, dpiX);
-	TrackerSettings::Instance().gnPlugWindowY = MulDiv(rect.top, 96, dpiY);
-	TrackerSettings::Instance().gnPlugWindowWidth  = MulDiv(rect.Width(), 96, dpiY);
-	TrackerSettings::Instance().gnPlugWindowHeight = MulDiv(rect.Height(), 96, dpiX);
+	TrackerSettings::Instance().gnPlugWindowX = HighDPISupport::ScalePixelsInv(rect.left, m_hWnd);
+	TrackerSettings::Instance().gnPlugWindowY = HighDPISupport::ScalePixelsInv(rect.top, m_hWnd);
+	TrackerSettings::Instance().gnPlugWindowWidth = HighDPISupport::ScalePixelsInv(rect.Width(), m_hWnd);
+	TrackerSettings::Instance().gnPlugWindowHeight = HighDPISupport::ScalePixelsInv(rect.Height(), m_hWnd);
 }
 
 
@@ -307,34 +317,34 @@ void CSelectPluginDlg::UpdatePluginsList(const VSTPluginLib *forceSelect)
 
 	static constexpr struct
 	{
-		VSTPluginLib::PluginCategory category;
+		PluginCategory category;
 		const TCHAR *description;
 	} categories[] =
 	{
-		{ VSTPluginLib::catEffect,         _T("Audio Effects") },
-		{ VSTPluginLib::catGenerator,      _T("Tone Generators") },
-		{ VSTPluginLib::catRestoration,    _T("Audio Restauration") },
-		{ VSTPluginLib::catSurroundFx,     _T("Surround Effects") },
-		{ VSTPluginLib::catRoomFx,         _T("Room Effects") },
-		{ VSTPluginLib::catSpacializer,    _T("Spacializers") },
-		{ VSTPluginLib::catMastering,      _T("Mastering Plugins") },
-		{ VSTPluginLib::catAnalysis,       _T("Analysis Plugins") },
-		{ VSTPluginLib::catOfflineProcess, _T("Offline Processing") },
-		{ VSTPluginLib::catShell,          _T("Shell Plugins") },
-		{ VSTPluginLib::catUnknown,        _T("Unsorted") },
-		{ VSTPluginLib::catDMO,            _T("DirectX Media Audio Effects") },
-		{ VSTPluginLib::catSynth,          _T("Instrument Plugins") },
-		{ VSTPluginLib::catHidden,         _T("Legacy Plugins") },
+		{ PluginCategory::Effect,         _T("Audio Effects") },
+		{ PluginCategory::Generator,      _T("Tone Generators") },
+		{ PluginCategory::Restoration,    _T("Audio Restauration") },
+		{ PluginCategory::SurroundFx,     _T("Surround Effects") },
+		{ PluginCategory::RoomFx,         _T("Room Effects") },
+		{ PluginCategory::Spacializer,    _T("Spacializers") },
+		{ PluginCategory::Mastering,      _T("Mastering Plugins") },
+		{ PluginCategory::Analysis,       _T("Analysis Plugins") },
+		{ PluginCategory::OfflineProcess, _T("Offline Processing") },
+		{ PluginCategory::Shell,          _T("Shell Plugins") },
+		{ PluginCategory::Unknown,        _T("Unsorted") },
+		{ PluginCategory::DMO,            _T("DirectX Media Audio Effects") },
+		{ PluginCategory::Synth,          _T("Instrument Plugins") },
+		{ PluginCategory::Hidden,         _T("Legacy Plugins") },
 	};
 
 	const HTREEITEM noPlug = AddTreeItem(_T("No plugin (empty slot)"), IMAGE_NOPLUGIN, false);
 	HTREEITEM currentPlug = noPlug;
 
-	std::bitset<VSTPluginLib::numCategories> categoryUsed;
-	HTREEITEM categoryFolders[VSTPluginLib::numCategories];
+	std::bitset<uint8(PluginCategory::NumCategories)> categoryUsed;
+	HTREEITEM categoryFolders[uint8(PluginCategory::NumCategories)];
 	for(const auto &cat : categories)
 	{
-		categoryFolders[cat.category] = AddTreeItem(cat.description, IMAGE_FOLDER, false);
+		categoryFolders[static_cast<uint32>(cat.category)] = AddTreeItem(cat.description, IMAGE_FOLDER, false);
 	}
 
 	enum PlugMatchQuality
@@ -347,7 +357,7 @@ void CSelectPluginDlg::UpdatePluginsList(const VSTPluginLib *forceSelect)
 	};
 	PlugMatchQuality foundPlugin = kNoMatch;
 
-	const int32 lastPluginID = TrackerSettings::Instance().gnPlugWindowLast;
+	const auto lastPluginID = TrackerSettings::Instance().lastSelectedPlugin.Get();
 	const bool nameFilterActive = !m_nameFilter.empty();
 	const auto currentTags = mpt::split(m_nameFilter, U_(" "));
 
@@ -355,11 +365,11 @@ void CSelectPluginDlg::UpdatePluginsList(const VSTPluginLib *forceSelect)
 	{
 		bool first = true;
 
-		for(auto p : *pManager)
+		for(auto &p : *pManager)
 		{
 			MPT_ASSERT(p);
 			const VSTPluginLib &plug = *p;
-			if(plug.category == VSTPluginLib::catHidden && (m_pPlugin == nullptr || m_pPlugin->pMixPlugin == nullptr || &m_pPlugin->pMixPlugin->GetPluginFactory() != p))
+			if(plug.category == PluginCategory::Hidden && (m_pPlugin == nullptr || m_pPlugin->pMixPlugin == nullptr || &m_pPlugin->pMixPlugin->GetPluginFactory() != p.get()))
 				continue;
 
 			if(nameFilterActive)
@@ -406,8 +416,8 @@ void CSelectPluginDlg::UpdatePluginsList(const VSTPluginLib *forceSelect)
 				title += MPT_CFORMAT(" ({})")(plug.GetDllArchNameUser());
 			}
 #endif // MPT_WITH_VST
-			HTREEITEM h = AddTreeItem(title, plug.isInstrument ? IMAGE_PLUGININSTRUMENT : IMAGE_EFFECTPLUGIN, true, categoryFolders[plug.category], reinterpret_cast<LPARAM>(&plug));
-			categoryUsed[plug.category] = true;
+			HTREEITEM h = AddTreeItem(title, plug.isInstrument ? IMAGE_PLUGININSTRUMENT : IMAGE_EFFECTPLUGIN, true, categoryFolders[static_cast<uint32>(plug.category)], reinterpret_cast<LPARAM>(&plug));
+			categoryUsed[static_cast<uint32>(plug.category)] = true;
 
 			if(nameFilterActive)
 			{
@@ -443,12 +453,16 @@ void CSelectPluginDlg::UpdatePluginsList(const VSTPluginLib *forceSelect)
 				{
 					// Plugin with matching ID to current slot's plug
 					if(plug.pluginId1 == m_pPlugin->Info.dwPluginId1
-						&& plug.pluginId2 == m_pPlugin->Info.dwPluginId2)
+						&& plug.pluginId2 == m_pPlugin->Info.dwPluginId2
+						&& plug.shellPluginID == m_pPlugin->Info.shellPluginID)
 					{
 						currentPlug = h;
 						foundPlugin = kSameIdAsCurrent;
 					}
-				} else if(plug.pluginId2 == lastPluginID && foundPlugin < kSameIdAsLastWithPlatformMatch)
+				} else if(static_cast<uint32>(plug.pluginId1) == lastPluginID.pluginID1
+					&& static_cast<uint32>(plug.pluginId2) == lastPluginID.pluginID2
+					&& plug.shellPluginID == lastPluginID.shellPluginID
+					&& foundPlugin < kSameIdAsLastWithPlatformMatch)
 				{
 					// Previously selected plugin
 #ifdef MPT_WITH_VST
@@ -687,8 +701,7 @@ void CSelectPluginDlg::OnAddPlugin()
 
 	for(const auto &file : dlg.GetFilenames())
 	{
-		VSTPluginLib *lib = plugManager->AddPlugin(file, TrackerSettings::Instance().BrokenPluginsWorkaroundVSTMaskAllCrashes, mpt::ustring(), false);
-		if(lib != nullptr)
+		for(VSTPluginLib *lib : plugManager->AddPlugin(file, TrackerSettings::Instance().BrokenPluginsWorkaroundVSTMaskAllCrashes, false))
 		{
 			update = true;
 			if(!VerifyPlugin(lib, this))
@@ -699,7 +712,7 @@ void CSelectPluginDlg::OnAddPlugin()
 				plugLib = lib;
 
 				// If this plugin was missing anywhere, try loading it
-				ReloadMissingPlugins(lib);
+				ReloadMissingPlugins(*lib);
 			}
 		}
 	}
@@ -724,9 +737,9 @@ void CSelectPluginDlg::OnScanFolder()
 	UpdatePluginsList(plugLib);
 
 	// If any of the plugins was missing anywhere, try loading it
-	for(auto p : *theApp.GetPluginManager())
+	for(auto &p : *theApp.GetPluginManager())
 	{
-		ReloadMissingPlugins(p);
+		ReloadMissingPlugins(*p);
 	}
 }
 
@@ -737,7 +750,7 @@ VSTPluginLib *CSelectPluginDlg::ScanPlugins(const mpt::PathString &path, CWnd *p
 	VSTPluginLib *plugLib = nullptr;
 	bool update = false;
 
-	CDialog pluginScanDlg;
+	DialogBase pluginScanDlg;
 	pluginScanDlg.Create(IDD_SCANPLUGINS, parent);
 	pluginScanDlg.CenterWindow(parent);
 	pluginScanDlg.ModifyStyle(0, WS_SYSMENU, WS_SYSMENU);
@@ -761,8 +774,7 @@ VSTPluginLib *CSelectPluginDlg::ScanPlugins(const mpt::PathString &path, CWnd *p
 				::DispatchMessage(&msg);
 			}
 
-			VSTPluginLib *lib = pManager->AddPlugin(fileName, maskCrashes, mpt::ustring(), false);
-			if(lib)
+			for(VSTPluginLib *lib : pManager->AddPlugin(fileName, maskCrashes, false))
 			{
 				update = true;
 				if(!VerifyPlugin(lib, parent))
@@ -791,7 +803,7 @@ VSTPluginLib *CSelectPluginDlg::ScanPlugins(const mpt::PathString &path, CWnd *p
 
 
 // After adding new plugins, check if they were missing in any open songs.
-void CSelectPluginDlg::ReloadMissingPlugins(const VSTPluginLib *lib) const
+void CSelectPluginDlg::ReloadMissingPlugins(const VSTPluginLib &lib) const
 {
 	CVstPluginManager *plugManager = theApp.GetPluginManager();
 	auto docs = theApp.GetOpenDocuments();
@@ -802,8 +814,9 @@ void CSelectPluginDlg::ReloadMissingPlugins(const VSTPluginLib *lib) const
 		for(auto &plugin : sndFile.m_MixPlugins)
 		{
 			if(plugin.pMixPlugin == nullptr
-				&& plugin.Info.dwPluginId1 == lib->pluginId1
-				&& plugin.Info.dwPluginId2 == lib->pluginId2)
+				&& plugin.Info.dwPluginId1 == lib.pluginId1
+				&& plugin.Info.dwPluginId2 == lib.pluginId2
+				&& plugin.Info.shellPluginID == lib.shellPluginID)
 			{
 				updateDoc = true;
 				plugManager->CreateMixPlugin(plugin, sndFile);

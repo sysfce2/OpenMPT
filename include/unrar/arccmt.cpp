@@ -36,7 +36,12 @@ bool Archive::DoGetComment(std::wstring &CmtData)
     {
       // Current (RAR 3.0+) version of archive comment.
       Seek(GetStartPos(),SEEK_SET);
-      return SearchSubBlock(SUBHEAD_TYPE_CMT)!=0 && ReadCommentData(CmtData);
+      if (SearchSubBlock(SUBHEAD_TYPE_CMT)!=0)
+        if (ReadCommentData(CmtData))
+          return true;
+        else
+          uiMsg(UIERROR_CMTBROKEN,FileName);
+      return false;
     }
 #ifndef SFX_MODULE
     // Old style (RAR 2.9) comment header embedded into the main 
@@ -101,9 +106,8 @@ bool Archive::DoGetComment(std::wstring &CmtData)
         // 4x memory for OEM to UTF-8 output here.
         OemToCharBuffA((char *)UnpData,(char *)UnpData,(DWORD)UnpDataSize);
 #endif
-//        CmtData.resize(UnpDataSize+1);
-        CharToWide((const char *)UnpData,CmtData);
-//        CmtData.resize(wcslen(CmtData->data()));
+        std::string UnpStr((char*)UnpData,UnpDataSize);
+        CharToWide(UnpStr,CmtData);
       }
     }
   }

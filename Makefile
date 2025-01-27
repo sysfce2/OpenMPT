@@ -51,9 +51,12 @@
 #  XMP_OPENMPT=0       Build xmp-openmpt (XMPlay plugin)
 #  SHARED_SONAME=1     Set SONAME of shared library
 #  DEBUG=0             Build debug binaries without optimization and with symbols
-#  OPTIMIZE=vectorize  -O3
+#  OPTIMIZE=default    vectorize
+#           vectorize  -O3
 #           speed      -O2
-#           size       -Os/-Oz
+#           size       -Os
+#           extrasize  -Oz
+#           some       -O1
 #           test       -Og
 #           debug      -O0
 #           none
@@ -66,6 +69,7 @@
 #  ONLY_TEST=0         Only build the test suite.
 #  STRICT=0            Treat warnings as errors.
 #  MODERN=0            Pass more modern compiler options.
+#  ANCIENT=0           Pass compiler options compatible with older versions.
 #  NATIVE=0            Optimize for system CPU.
 #  STDCXX=c++17        C++ standard version (default depends on compiler)
 #  STDC=c17            C standard version (default depends on compiler)
@@ -143,18 +147,41 @@ all:
 INFO       = @echo
 SILENT     = @
 VERYSILENT = @
-
+define PRINT_TRACE
+endef
+define PRINT_DEBUG
+endef
+define PRINT_INFO
+$(info $1)
+endef
 
 ifeq ($(VERBOSE),2)
 INFO       = @true
 SILENT     = 
 VERYSILENT = 
+define PRINT_TRACE
+$(info $1)
+endef
+define PRINT_DEBUG
+$(info $1)
+endef
+define PRINT_INFO
+$(info $1)
+endef
 endif
 
 ifeq ($(VERBOSE),1)
 INFO       = @true
 SILENT     = 
 VERYSILENT = @
+define PRINT_TRACE
+endef
+define PRINT_DEBUG
+$(info $1)
+endef
+define PRINT_INFO
+$(info $1)
+endef
 endif
 
 
@@ -162,8 +189,13 @@ ifeq ($(QUIET),1)
 INFO       = @true
 SILENT     = @
 VERYSILENT = @
+define PRINT_TRACE
+endef
+define PRINT_DEBUG
+endef
+define PRINT_INFO
+endef
 endif
-
 
 # general settings
 
@@ -174,7 +206,7 @@ EXAMPLES=1
 FUZZ=0
 SHARED_SONAME=1
 DEBUG=0
-OPTIMIZE=vectorize
+OPTIMIZE=default
 OPTIMIZE_LTO=0
 OPTIMIZE_FASTMATH=0
 TEST=1
@@ -255,6 +287,27 @@ NUMTHREADS:=$(shell nproc)
 
 else ifeq ($(OS),Windows_NT)
 
+ifeq ($(shell uname -o),Cygwin)
+
+HOST=unix
+HOST_FLAVOUR=CYGWIN
+
+TOOLCHAIN_SUFFIX=
+
+CPPCHECK = cppcheck
+
+MKDIR_P = mkdir -p
+RM = rm -f
+RMTREE = rm -rf
+INSTALL = install
+INSTALL_MAKE_DIR = install -d
+INSTALL_DIR = cp -r -v
+FIXPATH = $1
+
+NUMTHREADS:=$(NUMBER_OF_PROCESSORS)
+
+else
+
 HOST=windows
 HOST_FLAVOUR=
 
@@ -271,6 +324,8 @@ INSTALL_DIR = echo install
 FIXPATH = $(subst /,\,$1)
 
 NUMTHREADS:=$(NUMBER_OF_PROCESSORS)
+
+endif
 
 else
 
@@ -438,15 +493,56 @@ CXXFLAGS += -g
 CFLAGS   += -g
 else ifeq ($(OPTIMIZE),debug)
 CPPFLAGS += 
-CXXFLAGS += -O0 -fno-omit-frame-pointer
-CFLAGS   += -O0 -fno-omit-frame-pointer
+ifneq ($(MPT_COMPILER_NO_O),1)
+CXXFLAGS += -O0
+CFLAGS   += -O0
+endif
+CXXFLAGS += -fno-omit-frame-pointer
+CFLAGS   += -fno-omit-frame-pointer
 else ifeq ($(OPTIMIZE),test)
 CPPFLAGS += 
-CXXFLAGS += -Og -fno-omit-frame-pointer
-CFLAGS   += -Og -fno-omit-frame-pointer
+ifneq ($(MPT_COMPILER_NO_O),1)
+CXXFLAGS += -Og
+CFLAGS   += -Og
+endif
+CXXFLAGS += -fno-omit-frame-pointer
+CFLAGS   += -fno-omit-frame-pointer
+else ifeq ($(OPTIMIZE),some)
+ifneq ($(MPT_COMPILER_NO_O),1)
+CXXFLAGS += -O1
+CFLAGS   += -O1
+endif
+CXXFLAGS +=
+CFLAGS   += -fno-strict-aliasing
+ifneq ($(MPT_COMPILER_NOSECTIONS),1)
+CXXFLAGS += -ffunction-sections -fdata-sections
+CFLAGS   += -ffunction-sections -fdata-sections
+endif
+ifneq ($(MPT_COMPILER_NOGCSECTIONS),1)
+LDFLAGS  += -Wl,--gc-sections
+endif
+else ifeq ($(OPTIMIZE),extrasize)
+ifneq ($(MPT_COMPILER_NO_O),1)
+CXXFLAGS += -Oz
+CFLAGS   += -Oz
+endif
+CXXFLAGS +=
+CFLAGS   += -fno-strict-aliasing
+LDFLAGS  += 
+ifneq ($(MPT_COMPILER_NOSECTIONS),1)
+CXXFLAGS += -ffunction-sections -fdata-sections
+CFLAGS   += -ffunction-sections -fdata-sections
+endif
+ifneq ($(MPT_COMPILER_NOGCSECTIONS),1)
+LDFLAGS  += -Wl,--gc-sections
+endif
 else ifeq ($(OPTIMIZE),size)
+ifneq ($(MPT_COMPILER_NO_O),1)
 CXXFLAGS += -Os
-CFLAGS   += -Os -fno-strict-aliasing
+CFLAGS   += -Os
+endif
+CXXFLAGS +=
+CFLAGS   += -fno-strict-aliasing
 LDFLAGS  += 
 ifneq ($(MPT_COMPILER_NOSECTIONS),1)
 CXXFLAGS += -ffunction-sections -fdata-sections
@@ -456,8 +552,12 @@ ifneq ($(MPT_COMPILER_NOGCSECTIONS),1)
 LDFLAGS  += -Wl,--gc-sections
 endif
 else ifeq ($(OPTIMIZE),speed)
+ifneq ($(MPT_COMPILER_NO_O),1)
 CXXFLAGS += -O2
-CFLAGS   += -O2 -fno-strict-aliasing
+CFLAGS   += -O2
+endif
+CXXFLAGS +=
+CFLAGS   += -fno-strict-aliasing
 ifneq ($(MPT_COMPILER_NOSECTIONS),1)
 CXXFLAGS += -ffunction-sections -fdata-sections
 CFLAGS   += -ffunction-sections -fdata-sections
@@ -466,8 +566,26 @@ ifneq ($(MPT_COMPILER_NOGCSECTIONS),1)
 LDFLAGS  += -Wl,--gc-sections
 endif
 else ifeq ($(OPTIMIZE),vectorize)
+ifneq ($(MPT_COMPILER_NO_O),1)
 CXXFLAGS += -O3
-CFLAGS   += -O3 -fno-strict-aliasing
+CFLAGS   += -O3
+endif
+CXXFLAGS +=
+CFLAGS   += -fno-strict-aliasing
+ifneq ($(MPT_COMPILER_NOSECTIONS),1)
+CXXFLAGS += -ffunction-sections -fdata-sections
+CFLAGS   += -ffunction-sections -fdata-sections
+endif
+ifneq ($(MPT_COMPILER_NOGCSECTIONS),1)
+LDFLAGS  += -Wl,--gc-sections
+endif
+else ifeq ($(OPTIMIZE),default)
+ifneq ($(MPT_COMPILER_NO_O),1)
+CXXFLAGS += -O3
+CFLAGS   += -O3
+endif
+CXXFLAGS +=
+CFLAGS   += -fno-strict-aliasing
 ifneq ($(MPT_COMPILER_NOSECTIONS),1)
 CXXFLAGS += -ffunction-sections -fdata-sections
 CFLAGS   += -ffunction-sections -fdata-sections
@@ -585,32 +703,10 @@ endif
 
 endif
 
-ifeq ($(OPTIMIZE_FASTMATH),2)
-CPPFLAGS += -DMPT_CHECK_CXX_IGNORE_WARNING_FASTMATH -DMPT_CHECK_CXX_IGNORE_WARNING_FINITEMATH
-CXXFLAGS += -ffast-math
-CFLAGS   += -ffast-math
-else ifeq ($(OPTIMIZE_FASTMATH),1)
-CPPFLAGS += -DMPT_CHECK_CXX_IGNORE_WARNING_FINITEMATH
-CXXFLAGS += -fassociative-math
-CXXFLAGS += -fcx-limited-range
-CXXFLAGS += -fexcess-precision=fast
-CXXFLAGS += -ffinite-math-only
-CXXFLAGS += -freciprocal-math
-CXXFLAGS += -fno-math-errno
-CXXFLAGS += -fno-rounding-math
-CXXFLAGS += -fno-signaling-nans
-CXXFLAGS += -fno-signed-zeros
-CXXFLAGS += -fno-trapping-math
-CFLAGS += -fassociative-math
-CFLAGS += -fcx-limited-range
-CFLAGS += -fexcess-precision=fast
-CFLAGS += -ffinite-math-only
-CFLAGS += -freciprocal-math
-CFLAGS += -fno-math-errno
-CFLAGS += -fno-rounding-math
-CFLAGS += -fno-signaling-nans
-CFLAGS += -fno-signed-zeros
-CFLAGS += -fno-trapping-math
+ifeq ($(MPT_COMPILER_NOIPARA),1)
+# See <https://gcc.gnu.org/bugzilla/show_bug.cgi?id=115049>.
+CXXFLAGS += -fno-ipa-ra
+CFLAGS   += -fno-ipa-ra
 endif
 
 ifeq ($(CHECKED),1)
@@ -628,6 +724,9 @@ endif
 CXXFLAGS += -Wall -Wextra -Wpedantic $(CXXFLAGS_WARNINGS)
 CFLAGS   += -Wall -Wextra -Wpedantic $(CFLAGS_WARNINGS)
 LDFLAGS  += $(LDFLAGS_WARNINGS)
+
+CXXFLAGS += $(OVERWRITE_CXXFLAGS)
+CFLAGS   += $(OVERWRITE_CFLAGS)
 
 endif
 
@@ -663,39 +762,49 @@ ifeq ($(HACK_ARCHIVE_SUPPORT),1)
 NO_ZLIB:=1
 endif
 
+$(call PRINT_TRACE,[DEP] zlib)
 ifeq ($(LOCAL_ZLIB),1)
+$(call PRINT_INFO,[DEP] zlib: local)
 CPPFLAGS_ZLIB := -DMPT_WITH_ZLIB
 LDFLAGS_ZLIB  :=
 LDLIBS_ZLIB   :=
 CPPFLAGS_ZLIB += -Iinclude/zlib/
-LOCAL_ZLIB_SOURCES := 
-LOCAL_ZLIB_SOURCES += include/zlib/adler32.c
-LOCAL_ZLIB_SOURCES += include/zlib/compress.c
-LOCAL_ZLIB_SOURCES += include/zlib/crc32.c
-LOCAL_ZLIB_SOURCES += include/zlib/deflate.c
-LOCAL_ZLIB_SOURCES += include/zlib/gzclose.c
-LOCAL_ZLIB_SOURCES += include/zlib/gzlib.c
-LOCAL_ZLIB_SOURCES += include/zlib/gzread.c
-LOCAL_ZLIB_SOURCES += include/zlib/gzwrite.c
-LOCAL_ZLIB_SOURCES += include/zlib/infback.c
-LOCAL_ZLIB_SOURCES += include/zlib/inffast.c
-LOCAL_ZLIB_SOURCES += include/zlib/inflate.c
-LOCAL_ZLIB_SOURCES += include/zlib/inftrees.c
-LOCAL_ZLIB_SOURCES += include/zlib/trees.c
-LOCAL_ZLIB_SOURCES += include/zlib/uncompr.c
-LOCAL_ZLIB_SOURCES += include/zlib/zutil.c
-include/zlib/%$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DSTDC -DZ_HAVE_UNISTD_H
-include/zlib/%.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DSTDC -DZ_HAVE_UNISTD_H
+ZLIB_SOURCES := 
+ZLIB_SOURCES += include/zlib/adler32.c
+ZLIB_SOURCES += include/zlib/compress.c
+ZLIB_SOURCES += include/zlib/crc32.c
+ZLIB_SOURCES += include/zlib/deflate.c
+ZLIB_SOURCES += include/zlib/gzclose.c
+ZLIB_SOURCES += include/zlib/gzlib.c
+ZLIB_SOURCES += include/zlib/gzread.c
+ZLIB_SOURCES += include/zlib/gzwrite.c
+ZLIB_SOURCES += include/zlib/infback.c
+ZLIB_SOURCES += include/zlib/inffast.c
+ZLIB_SOURCES += include/zlib/inflate.c
+ZLIB_SOURCES += include/zlib/inftrees.c
+ZLIB_SOURCES += include/zlib/trees.c
+ZLIB_SOURCES += include/zlib/uncompr.c
+ZLIB_SOURCES += include/zlib/zutil.c
+include/zlib/%.zlib$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DSTDC -DZ_HAVE_UNISTD_H
+ZLIB_OBJECTS = $(ZLIB_SOURCES:.c=.zlib$(FLAVOUR_O).o)
+ZLIB_DEPENDS = $(ZLIB_OBJECTS:$(FLAVOUR_O).o=$(FLAVOUR_O).d)
+ALL_OBJECTS += $(ZLIB_OBJECTS)
+ALL_DEPENDS += $(ZLIB_DEPENDS)
+OBJECTS_ZLIB = $(ZLIB_OBJECTS)
 else
 ifeq ($(NO_ZLIB),1)
+$(call PRINT_INFO,[DEP] zlib: disabled)
 else
 #LDLIBS   += -lz
+$(call PRINT_DEBUG,[DEP] zlib: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists zlib && echo yes),yes)
+$(call PRINT_INFO,[DEP] zlib: pkg-config/zlib)
 CPPFLAGS_ZLIB := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I zlib ) -DMPT_WITH_ZLIB
 LDFLAGS_ZLIB  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   zlib ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other zlib )
 LDLIBS_ZLIB   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   zlib )
 PC_REQUIRES_ZLIB := zlib
 else
+$(call PRINT_INFO,[DEP] zlib: no)
 ifeq ($(FORCE_DEPS),1)
 $(error zlib not found)
 else
@@ -706,14 +815,16 @@ endif
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] mpg123)
 ifeq ($(LOCAL_MPG123),1)
+$(call PRINT_INFO,[DEP] mpg123: local)
 
 ifeq ($(ENABLE_DXE),1)
 
 CPPFLAGS_MPG123 := -DMPT_WITH_MPG123 -DMPG123_NO_LARGENAME
 LDFLAGS_MPG123  := 
 LDLIBS_MPG123   :=
-CPPFLAGS_MPG123 += -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/
+CPPFLAGS_MPG123 += -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/generic/
 MPG123_SOURCES := 
 MPG123_SOURCES += include/mpg123/src/compat/compat.c
 MPG123_SOURCES += include/mpg123/src/compat/compat_str.c
@@ -741,24 +852,15 @@ MPG123_SOURCES += include/mpg123/src/libmpg123/synth_8bit.c
 MPG123_SOURCES += include/mpg123/src/libmpg123/synth_real.c
 MPG123_SOURCES += include/mpg123/src/libmpg123/synth_s32.c
 MPG123_SOURCES += include/mpg123/src/libmpg123/tabinit.c
-MPG123_OBJECTS += $(MPG123_SOURCES:.c=$(FLAVOUR_O).o)
+MPG123_OBJECTS += $(MPG123_SOURCES:.c=.mpg123$(FLAVOUR_O).o)
 MPG123_DEPENDS = $(MPG123_OBJECTS:$(FLAVOUR_O).o=$(FLAVOUR_O).d)
 ALL_OBJECTS += $(MPG123_OBJECTS)
 ALL_DEPENDS += $(MPG123_DEPENDS)
-include/mpg123/src/compat/%$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
-include/mpg123/src/compat/%.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
-include/mpg123/src/libmpg123/%$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
-include/mpg123/src/libmpg123/%.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
-include/mpg123/src/compat/%$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/ $(CPPFLAGS)
-include/mpg123/src/compat/%.test$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/ $(CPPFLAGS)
-include/mpg123/src/libmpg123/%$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/ $(CPPFLAGS)
-include/mpg123/src/libmpg123/%.test$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/ $(CPPFLAGS)
-LOCAL_MPG123_SOURCES :=
-LOCAL_MPG123_SOURCES +=
-LOCAL_MPG123_OBJECTS :=
-LOCAL_MPG123_OBJECTS +=
-LOCAL_MPG123_LIBS :=
-LOCAL_MPG123_LIBS += bin/$(FLAVOUR_DIR)mpg123.a
+include/mpg123/src/compat/%.mpg123$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
+include/mpg123/src/libmpg123/%.mpg123$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
+include/mpg123/src/compat/%.mpg123$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/generic/ $(CPPFLAGS)
+include/mpg123/src/libmpg123/%.mpg123$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/generic/ $(CPPFLAGS)
+LIBS_MPG123 = bin/$(FLAVOUR_DIR)mpg123.a
 
 bin/$(FLAVOUR_DIR)mpg123.a: $(MPG123_OBJECTS)
 	$(INFO) [DXE] $@
@@ -772,60 +874,120 @@ ifeq ($(SHARED_SONAME),1)
 	$(SILENT)ln -sf $(MPG123_SONAME) bin/$(FLAVOUR_DIR)mpg123$(SOSUFFIX)
 endif
 
+else ifeq ($(ENABLE_DLL),1)
+
+CPPFLAGS_MPG123 := -DMPT_WITH_MPG123 -DMPG123_NO_LARGENAME
+LDFLAGS_MPG123  :=
+LDLIBS_MPG123   :=
+CPPFLAGS_MPG123 += -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/generic/
+MPG123_SOURCES :=
+MPG123_SOURCES += include/mpg123/src/compat/compat.c
+MPG123_SOURCES += include/mpg123/src/compat/compat_str.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/dct64.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/equalizer.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/feature.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/format.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/frame.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/icy.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/icy2utf8.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/id3.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/index.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/layer1.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/layer2.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/layer3.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/lfs_wrap.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/libmpg123.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/ntom.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/optimize.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/parse.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/readers.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/stringbuf.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/synth.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/synth_8bit.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/synth_real.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/synth_s32.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/tabinit.c
+MPG123_OBJECTS += $(MPG123_SOURCES:.c=.mpg123$(FLAVOUR_O).o)
+MPG123_DEPENDS = $(MPG123_OBJECTS:$(FLAVOUR_O).o=$(FLAVOUR_O).d)
+ALL_OBJECTS += $(MPG123_OBJECTS)
+ALL_DEPENDS += $(MPG123_DEPENDS)
+include/mpg123/src/compat/%.mpg123$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
+include/mpg123/src/libmpg123/%.mpg123$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
+include/mpg123/src/compat/%.mpg123$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/generic/ $(CPPFLAGS)
+include/mpg123/src/libmpg123/%.mpg123$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/generic/ $(CPPFLAGS)
+LIBS_MPG123 = bin/$(FLAVOUR_DIR)mpg123$(SOSUFFIX)
+
+bin/$(FLAVOUR_DIR)mpg123$(SOSUFFIX): $(MPG123_OBJECTS)
+	$(INFO) [LD] $@
+ifeq ($(NO_SHARED_LINKER_FLAG),1)
+	$(SILENT)$(LINK.cc) -shared $(MPG123_LDFLAGS) $(SO_LDFLAGS) $^ -o $@
+else
+	$(SILENT)$(LINK.cc) -shared $(MPG123_LDFLAGS) $(SO_LDFLAGS) $^ -o $@
+endif
+ifeq ($(SHARED_SONAME),1)
+	$(SILENT)mv bin/$(FLAVOUR_DIR)mpg123$(SOSUFFIX) bin/$(FLAVOUR_DIR)$(MPG123_SONAME)
+	$(SILENT)ln -sf $(MPG123_SONAME) bin/$(FLAVOUR_DIR)mpg123$(SOSUFFIX)
+endif
+
 else
 
 CPPFLAGS_MPG123 := -DMPT_WITH_MPG123 -DMPG123_NO_LARGENAME
 LDFLAGS_MPG123  :=
 LDLIBS_MPG123   := 
-CPPFLAGS_MPG123 += -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/
-LOCAL_MPG123_SOURCES := 
-LOCAL_MPG123_SOURCES += include/mpg123/src/compat/compat.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/compat/compat_str.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/dct64.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/equalizer.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/feature.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/format.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/frame.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/icy.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/icy2utf8.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/id3.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/index.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/layer1.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/layer2.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/layer3.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/lfs_wrap.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/libmpg123.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/ntom.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/optimize.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/parse.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/readers.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/stringbuf.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/synth.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/synth_8bit.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/synth_real.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/synth_s32.c
-LOCAL_MPG123_SOURCES += include/mpg123/src/libmpg123/tabinit.c
-include/mpg123/src/compat/%$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
-include/mpg123/src/compat/%.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
-include/mpg123/src/libmpg123/%$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
-include/mpg123/src/libmpg123/%.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
-include/mpg123/src/compat/%$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/ $(CPPFLAGS)
-include/mpg123/src/compat/%.test$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/ $(CPPFLAGS)
-include/mpg123/src/libmpg123/%$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/ $(CPPFLAGS)
-include/mpg123/src/libmpg123/%.test$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/makefile/ $(CPPFLAGS)
+CPPFLAGS_MPG123 += -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/generic/
+MPG123_SOURCES := 
+MPG123_SOURCES += include/mpg123/src/compat/compat.c
+MPG123_SOURCES += include/mpg123/src/compat/compat_str.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/dct64.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/equalizer.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/feature.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/format.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/frame.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/icy.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/icy2utf8.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/id3.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/index.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/layer1.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/layer2.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/layer3.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/lfs_wrap.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/libmpg123.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/ntom.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/optimize.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/parse.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/readers.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/stringbuf.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/synth.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/synth_8bit.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/synth_real.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/synth_s32.c
+MPG123_SOURCES += include/mpg123/src/libmpg123/tabinit.c
+include/mpg123/src/compat/%.mpg123$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
+include/mpg123/src/libmpg123/%.mpg123$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT) -DOPT_GENERIC
+include/mpg123/src/compat/%.mpg123$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/generic/ $(CPPFLAGS)
+include/mpg123/src/libmpg123/%.mpg123$(FLAVOUR_O).o : CPPFLAGS:= -Iinclude/mpg123/src/include/ -Iinclude/mpg123/ports/generic/ $(CPPFLAGS)
+MPG123_OBJECTS = $(MPG123_SOURCES:.c=.mpg123$(FLAVOUR_O).o)
+MPG123_DEPENDS = $(MPG123_OBJECTS:$(FLAVOUR_O).o=$(FLAVOUR_O).d)
+ALL_OBJECTS += $(MPG123_OBJECTS)
+ALL_DEPENDS += $(MPG123_DEPENDS)
+OBJECTS_MPG123 = $(MPG123_OBJECTS)
 
 endif
 
 else
 ifeq ($(NO_MPG123),1)
+$(call PRINT_INFO,[DEP] mpg123: disabled)
 else
 #LDLIBS   += -lmpg123
+$(call PRINT_DEBUG,[DEP] mpg123: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists 'libmpg123 >= 1.14.0' && echo yes),yes)
+$(call PRINT_INFO,[DEP] mpg123: pkg-config/mpg123)
 CPPFLAGS_MPG123 := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I 'libmpg123 >= 1.14.0' ) -DMPT_WITH_MPG123
 LDFLAGS_MPG123  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   'libmpg123 >= 1.14.0' ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other 'libmpg123 >= 1.14.0' )
 LDLIBS_MPG123   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   'libmpg123 >= 1.14.0' )
 PC_REQUIRES_MPG123 := libmpg123
 else
+$(call PRINT_INFO,[DEP] mpg123: no)
 ifeq ($(FORCE_DEPS),1)
 $(error mpg123 not found)
 else
@@ -836,26 +998,36 @@ endif
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] ogg)
 ifeq ($(LOCAL_OGG),1)
+$(call PRINT_INFO,[DEP] ogg: local)
 CPPFLAGS_OGG := -DMPT_WITH_OGG
 LDFLAGS_OGG  := 
 LDLIBS_OGG   := 
 CPPFLAGS_OGG += -Iinclude/ogg/include/ -Iinclude/ogg/ports/makefile/
-LOCAL_OGG_SOURCES := 
-LOCAL_OGG_SOURCES += include/ogg/src/bitwise.c
-LOCAL_OGG_SOURCES += include/ogg/src/framing.c
-include/ogg/src/%$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
-include/ogg/src/%.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
+OGG_SOURCES := 
+OGG_SOURCES += include/ogg/src/bitwise.c
+OGG_SOURCES += include/ogg/src/framing.c
+include/ogg/src/%.ogg$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
+OGG_OBJECTS += $(OGG_SOURCES:.c=.ogg$(FLAVOUR_O).o)
+OGG_DEPENDS = $(OGG_OBJECTS:$(FLAVOUR_O).o=$(FLAVOUR_O).d)
+ALL_OBJECTS += $(OGG_OBJECTS)
+ALL_DEPENDS += $(OGG_DEPENDS)
+OBJECTS_OGG = $(OGG_OBJECTS)
 else
 ifeq ($(NO_OGG),1)
+$(call PRINT_INFO,[DEP] ogg: disabled)
 else
 #LDLIBS   += -logg
+$(call PRINT_DEBUG,[DEP] ogg: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists ogg && echo yes),yes)
+$(call PRINT_INFO,[DEP] ogg: pkg-config/ogg)
 CPPFLAGS_OGG := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I ogg ) -DMPT_WITH_OGG
 LDFLAGS_OGG  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   ogg ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other ogg )
 LDLIBS_OGG   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   ogg )
 PC_REQUIRES_OGG := ogg
 else
+$(call PRINT_INFO,[DEP] ogg: no)
 ifeq ($(FORCE_DEPS),1)
 $(error ogg not found)
 else
@@ -866,7 +1038,9 @@ endif
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] vorbis)
 ifeq ($(LOCAL_VORBIS),1)
+$(call PRINT_INFO,[DEP] vorbis: local)
 CPPFLAGS_VORBIS := -DMPT_WITH_VORBIS
 LDFLAGS_VORBIS  := 
 LDLIBS_VORBIS   := 
@@ -874,41 +1048,49 @@ CPPFLAGS_VORBIS += -Iinclude/vorbis/include/ -Iinclude/vorbis/lib/
 ifneq ($(MPT_COMPILER_NOALLOCAH),1)
 CPPFLAGS_VORBIS += -DHAVE_ALLOCA_H
 endif
-LOCAL_VORBIS_SOURCES := 
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/analysis.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/bitrate.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/block.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/codebook.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/envelope.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/floor0.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/floor1.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/info.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/lookup.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/lpc.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/lsp.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/mapping0.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/mdct.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/psy.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/registry.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/res0.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/sharedbook.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/smallft.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/synthesis.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/vorbisenc.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/vorbisfile.c
-LOCAL_VORBIS_SOURCES += include/vorbis/lib/window.c
-include/vorbis/lib/%$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
-include/vorbis/lib/%.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
+VORBIS_SOURCES := 
+VORBIS_SOURCES += include/vorbis/lib/analysis.c
+VORBIS_SOURCES += include/vorbis/lib/bitrate.c
+VORBIS_SOURCES += include/vorbis/lib/block.c
+VORBIS_SOURCES += include/vorbis/lib/codebook.c
+VORBIS_SOURCES += include/vorbis/lib/envelope.c
+VORBIS_SOURCES += include/vorbis/lib/floor0.c
+VORBIS_SOURCES += include/vorbis/lib/floor1.c
+VORBIS_SOURCES += include/vorbis/lib/info.c
+VORBIS_SOURCES += include/vorbis/lib/lookup.c
+VORBIS_SOURCES += include/vorbis/lib/lpc.c
+VORBIS_SOURCES += include/vorbis/lib/lsp.c
+VORBIS_SOURCES += include/vorbis/lib/mapping0.c
+VORBIS_SOURCES += include/vorbis/lib/mdct.c
+VORBIS_SOURCES += include/vorbis/lib/psy.c
+VORBIS_SOURCES += include/vorbis/lib/registry.c
+VORBIS_SOURCES += include/vorbis/lib/res0.c
+VORBIS_SOURCES += include/vorbis/lib/sharedbook.c
+VORBIS_SOURCES += include/vorbis/lib/smallft.c
+VORBIS_SOURCES += include/vorbis/lib/synthesis.c
+VORBIS_SOURCES += include/vorbis/lib/vorbisenc.c
+VORBIS_SOURCES += include/vorbis/lib/vorbisfile.c
+VORBIS_SOURCES += include/vorbis/lib/window.c
+include/vorbis/lib/%.vorbis$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
+VORBIS_OBJECTS += $(VORBIS_SOURCES:.c=.vorbis$(FLAVOUR_O).o)
+VORBIS_DEPENDS = $(VORBIS_OBJECTS:$(FLAVOUR_O).o=$(FLAVOUR_O).d)
+ALL_OBJECTS += $(VORBIS_OBJECTS)
+ALL_DEPENDS += $(VORBIS_DEPENDS)
+OBJECTS_VORBIS = $(VORBIS_OBJECTS)
 else
 ifeq ($(NO_VORBIS),1)
+$(call PRINT_INFO,[DEP] vorbis: disabled)
 else
 #LDLIBS   += -lvorbis
+$(call PRINT_DEBUG,[DEP] vorbis: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists vorbis && echo yes),yes)
+$(call PRINT_INFO,[DEP] vorbis: pkg-config/vorbis)
 CPPFLAGS_VORBIS := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I vorbis ) -DMPT_WITH_VORBIS
 LDFLAGS_VORBIS  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   vorbis ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other vorbis )
 LDLIBS_VORBIS   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   vorbis )
 PC_REQUIRES_VORBIS := vorbis
 else
+$(call PRINT_INFO,[DEP] vorbis: no)
 ifeq ($(FORCE_DEPS),1)
 $(error vorbis not found)
 else
@@ -919,20 +1101,26 @@ endif
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] vorbisfile)
 ifeq ($(LOCAL_VORBIS),1)
+$(call PRINT_INFO,[DEP] vorbisfile: local)
 CPPFLAGS_VORBISFILE := -DMPT_WITH_VORBISFILE
 LDFLAGS_VORBISFILE  := 
 LDLIBS_VORBISFILE   := 
 else
 ifeq ($(NO_VORBISFILE),1)
+$(call PRINT_INFO,[DEP] vorbisfile: disabled)
 else
 #LDLIBS   += -lvorbisfile
+$(call PRINT_DEBUG,[DEP] vorbisfile: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists vorbisfile && echo yes),yes)
+$(call PRINT_INFO,[DEP] vorbisfile: pkg-config/vorbisfile)
 CPPFLAGS_VORBISFILE := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I vorbisfile ) -DMPT_WITH_VORBISFILE
 LDFLAGS_VORBISFILE  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   vorbisfile ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other vorbisfile )
 LDLIBS_VORBISFILE   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   vorbisfile )
 PC_REQUIRES_VORBISFILE := vorbisfile
 else
+$(call PRINT_INFO,[DEP] vorbisfile: no)
 ifeq ($(FORCE_DEPS),1)
 $(error vorbisfile not found)
 else
@@ -943,14 +1131,19 @@ endif
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] SDL2)
 ifeq ($(NO_SDL2),1)
+$(call PRINT_INFO,[DEP] SDL2: disabled)
 else
 #LDLIBS   += -lsdl2
+$(call PRINT_DEBUG,[DEP] SDL2: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists 'sdl2 >= 2.0.4' && echo yes),yes)
+$(call PRINT_INFO,[DEP] SDL2: pkg-config/sdl2)
 CPPFLAGS_SDL2 := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I 'sdl2 >= 2.0.4' ) -DMPT_WITH_SDL2
 LDFLAGS_SDL2  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   'sdl2 >= 2.0.4' ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other 'sdl2 >= 2.0.4' )
 LDLIBS_SDL2   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   'sdl2 >= 2.0.4' )
 else
+$(call PRINT_INFO,[DEP] SDL2: no)
 ifeq ($(FORCE_DEPS),1)
 $(error sdl2 not found)
 else
@@ -960,14 +1153,19 @@ NO_SDL2:=1
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] PortAudio)
 ifeq ($(NO_PORTAUDIO),1)
+$(call PRINT_INFO,[DEP] PortAudio: disabled)
 else
 #LDLIBS   += -lportaudio
+$(call PRINT_DEBUG,[DEP] PortAudio: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists portaudio-2.0 && echo yes),yes)
+$(call PRINT_INFO,[DEP] PortAudio: pkg-config/portaudio-2.0)
 CPPFLAGS_PORTAUDIO := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I portaudio-2.0 ) -DMPT_WITH_PORTAUDIO
 LDFLAGS_PORTAUDIO  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   portaudio-2.0 ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other portaudio-2.0 )
 LDLIBS_PORTAUDIO   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   portaudio-2.0 )
 else
+$(call PRINT_INFO,[DEP] PortAudio: no)
 ifeq ($(FORCE_DEPS),1)
 $(error portaudio not found)
 else
@@ -977,14 +1175,19 @@ NO_PORTAUDIO:=1
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] PortAudio-C++)
 ifeq ($(NO_PORTAUDIOCPP),1)
+$(call PRINT_INFO,[DEP] PortAudio-C++: disabled)
 else
 #LDLIBS   += -lportaudiocpp
+$(call PRINT_DEBUG,[DEP] PortAudio-C++: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists portaudiocpp && echo yes),yes)
+$(call PRINT_INFO,[DEP] PortAudio-C++: pkg-config/portaudiocpp)
 CPPFLAGS_PORTAUDIOCPP := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I portaudiocpp ) -DMPT_WITH_PORTAUDIOCPP
 LDFLAGS_PORTAUDIOCPP  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   portaudiocpp ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other portaudiocpp )
 LDLIBS_PORTAUDIOCPP   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   portaudiocpp )
 else
+$(call PRINT_INFO,[DEP] PortAudio-C++: no)
 ifeq ($(FORCE_DEPS),1)
 $(error portaudiocpp not found)
 else
@@ -994,14 +1197,20 @@ NO_PORTAUDIOCPP:=1
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] PulseAudio)
 ifeq ($(NO_PULSEAUDIO),1)
+$(call PRINT_INFO,[DEP] PulseAudio: disabled)
 else
 #LDLIBS   += -lpulse-simple
+$(call PRINT_DEBUG,[DEP] PulseAudio: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists libpulse libpulse-simple && echo yes),yes)
+$(call PRINT_INFO,[DEP] PulseAudio: pkg-config/libpulse)
+$(call PRINT_INFO,[DEP] PulseAudio: pkg-config/libpulse-simple)
 CPPFLAGS_PULSEAUDIO := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I libpulse libpulse-simple ) -DMPT_WITH_PULSEAUDIO
 LDFLAGS_PULSEAUDIO  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   libpulse libpulse-simple ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other libpulse libpulse-simple )
 LDLIBS_PULSEAUDIO   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   libpulse libpulse-simple )
 else
+$(call PRINT_INFO,[DEP] PulseAudio: no)
 ifeq ($(FORCE_DEPS),1)
 $(error pulseaudio not found)
 else
@@ -1011,14 +1220,19 @@ NO_PULSEAUDIO:=1
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] FLAC)
 ifeq ($(NO_FLAC),1)
+$(call PRINT_INFO,[DEP] FLAC: disabled)
 else
 #LDLIBS   += -lFLAC
+$(call PRINT_DEBUG,[DEP] FLAC: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists 'flac >= 1.3.0' && echo yes),yes)
+$(call PRINT_INFO,[DEP] FLAC: pkg-config/flac)
 CPPFLAGS_FLAC := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I 'flac >= 1.3.0' ) -DMPT_WITH_FLAC
 LDFLAGS_FLAC  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L   'flac >= 1.3.0' ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other 'flac >= 1.3.0' )
 LDLIBS_FLAC   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l   'flac >= 1.3.0' )
 else
+$(call PRINT_INFO,[DEP] FLAC: no)
 ifeq ($(FORCE_DEPS),1)
 $(error flac not found)
 else
@@ -1028,14 +1242,19 @@ NO_FLAC:=1
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] sndfile)
 ifeq ($(NO_SNDFILE),1)
+$(call PRINT_INFO,[DEP] sndfile: disabled)
 else
 #LDLIBS   += -lsndfile
+$(call PRINT_DEBUG,[DEP] sndfile: checking pkg-config ...)
 ifeq ($(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --exists sndfile && echo yes),yes)
+$(call PRINT_INFO,[DEP] sndfile: pkg-config/sndfile)
 CPPFLAGS_SNDFILE := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --cflags-only-I   sndfile ) -DMPT_WITH_SNDFILE
 LDFLAGS_SNDFILE  := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-L     sndfile ) $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-other sndfile )
 LDLIBS_SNDFILE   := $(shell $(PKG_CONFIG)$(TOOLCHAIN_SUFFIX) --libs-only-l     sndfile )
 else
+$(call PRINT_INFO,[DEP] sndfile: no)
 ifeq ($(FORCE_DEPS),1)
 $(error sndfile not found)
 else
@@ -1045,7 +1264,9 @@ NO_SNDFILE:=1
 endif
 endif
 
+$(call PRINT_TRACE,[DEP] Allegro-4.2)
 ifeq ($(USE_ALLEGRO42),1)
+$(call PRINT_INFO,[DEP] Allegro-4.2: local)
 
 CPPFLAGS_ALLEGRO42 := -Iinclude/allegro42/include -DALLEGRO_HAVE_STDINT_H -DLONG_LONG="long long" -DMPT_WITH_ALLEGRO42
 LDFLAGS_ALLEGRO42 :=
@@ -1058,6 +1279,8 @@ include/allegro42/lib/djgpp/liballeg.a:
 
 MISC_OUTPUTS += include/allegro42/lib/djgpp/liballeg.a
 
+else
+$(call PRINT_INFO,[DEP] Allegro-4.2: disabled)
 endif
 
 
@@ -1066,9 +1289,25 @@ CPPFLAGS += -DMPT_BUILD_HACK_ARCHIVE_SUPPORT
 endif
 
 CPPCHECK_FLAGS += -j $(NUMTHREADS)
-CPPCHECK_FLAGS += --std=c11 --std=c++17
+ifneq ($(STDC),)
+CPPCHECK_FLAGS += --std=$(STDC)
+else
+#CPPCHECK_FLAGS += --std=c23
+#CPPCHECK_FLAGS += --std=c18
+#CPPCHECK_FLAGS += --std=c17
+CPPCHECK_FLAGS += --std=c11
+endif
+ifneq ($(STDCXX),)
+CPPCHECK_FLAGS += --std=$(STDCXX)
+else
+#CPPCHECK_FLAGS += --std=c++23
+#CPPCHECK_FLAGS += --std=c++20
+CPPCHECK_FLAGS += --std=c++17
+endif
+CPPCHECK_FLAGS += --library=build/cppcheck/glibc-workarounds.cfg
 CPPCHECK_FLAGS += --quiet
 CPPCHECK_FLAGS += --enable=warning --inline-suppr --template='{file}:{line}: warning: {severity}: {message} [{id}]'
+CPPCHECK_FLAGS += --check-level=exhaustive
 CPPCHECK_FLAGS += --suppress=missingIncludeSystem
 CPPCHECK_FLAGS += --suppress=uninitMemberVar
 
@@ -1097,14 +1336,66 @@ LDLIBS_OPENMPT123   += $(LDLIBS_SDL2) $(LDLIBS_PORTAUDIO) $(LDLIBS_PULSEAUDIO) $
 	$(SILENT)$(COMPILE.c) $(OUTPUT_OPTION) $<
 
 %.test$(FLAVOUR_O).o: %.cpp
-	$(INFO) [CXX-TEST] $<
+	$(INFO) [CXX] libopenmpt-test: $<
 	$(VERYSILENT)$(CXX) -DLIBOPENMPT_BUILD_TEST $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.test$(FLAVOUR_O).d
 	$(SILENT)$(COMPILE.cc) -DLIBOPENMPT_BUILD_TEST $(OUTPUT_OPTION) $<
 
 %.test$(FLAVOUR_O).o: %.c
-	$(INFO) [CC-TEST] $<
+	$(INFO) [CC] libopenmpt-test: $<
 	$(VERYSILENT)$(CC) -DLIBOPENMPT_BUILD_TEST $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.test$(FLAVOUR_O).d
 	$(SILENT)$(COMPILE.c) -DLIBOPENMPT_BUILD_TEST $(OUTPUT_OPTION) $<
+
+%.openmpt123$(FLAVOUR_O).o: %.cpp
+	$(INFO) [CXX] openmpt123: $<
+	$(VERYSILENT)$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(CPPFLAGS_OPENMPT123) $(TARGET_ARCH) -M -MT$@ $< > $*.openmpt123$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.cc) $(CPPFLAGS_OPENMPT123) $(OUTPUT_OPTION) $<
+
+%.openmpt123$(FLAVOUR_O).o: %.c
+	$(INFO) [CC] openmpt123: $<
+	$(VERYSILENT)$(CC) $(CFLAGS) $(CPPFLAGS) $(CPPFLAGS_OPENMPT123) $(TARGET_ARCH) -M -MT$@ $< > $*.openmpt123$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.c) $(CPPFLAGS_OPENMPT123) $(OUTPUT_OPTION) $<
+
+
+%.zlib$(FLAVOUR_O).o: %.cpp
+	$(INFO) [CXX] zlib: $<
+	$(VERYSILENT)$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.zlib$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.cc) $(OUTPUT_OPTION) $<
+
+%.zlib$(FLAVOUR_O).o: %.c
+	$(INFO) [CC] zlib: $<
+	$(VERYSILENT)$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.zlib$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.c) $(OUTPUT_OPTION) $<
+
+%.mpg123$(FLAVOUR_O).o: %.cpp
+	$(INFO) [CXX] mpg123: $<
+	$(VERYSILENT)$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.mpg123$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.cc) $(OUTPUT_OPTION) $<
+
+%.mpg123$(FLAVOUR_O).o: %.c
+	$(INFO) [CC] mpg123: $<
+	$(VERYSILENT)$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.mpg123$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.c) $(OUTPUT_OPTION) $<
+
+%.ogg$(FLAVOUR_O).o: %.cpp
+	$(INFO) [CXX] ogg: $<
+	$(VERYSILENT)$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.ogg$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.cc) $(OUTPUT_OPTION) $<
+
+%.ogg$(FLAVOUR_O).o: %.c
+	$(INFO) [CC] ogg: $<
+	$(VERYSILENT)$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.ogg$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.c) $(OUTPUT_OPTION) $<
+
+%.vorbis$(FLAVOUR_O).o: %.cpp
+	$(INFO) [CXX] vorbis: $<
+	$(VERYSILENT)$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.vorbis$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.cc) $(OUTPUT_OPTION) $<
+
+%.vorbis$(FLAVOUR_O).o: %.c
+	$(INFO) [CC] vorbis: $<
+	$(VERYSILENT)$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*.vorbis$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.c) $(OUTPUT_OPTION) $<
+
 
 %.tar.gz: %.tar
 	$(INFO) [GZIP] $<
@@ -1174,15 +1465,24 @@ CPPFLAGS += -DLIBOPENMPT_BUILD
 
 
 COMMON_CXX_SOURCES += \
+ $(sort $(wildcard src/openmpt/all/*.cpp)) \
+ $(sort $(wildcard src/openmpt/base/*.cpp)) \
+ $(sort $(wildcard src/openmpt/logging/*.cpp)) \
+ $(sort $(wildcard src/openmpt/random/*.cpp)) \
  $(sort $(wildcard common/*.cpp)) \
- $(sort $(wildcard src/mpt/src/*.cpp)) \
  
 SOUNDLIB_CXX_SOURCES += \
  $(COMMON_CXX_SOURCES) \
+ $(sort $(wildcard src/openmpt/fileformat_base/*.cpp)) \
+ $(sort $(wildcard src/openmpt/soundbase/*.cpp)) \
+ $(sort $(wildcard src/openmpt/soundfile_data/*.cpp)) \
  $(sort $(wildcard soundlib/*.cpp)) \
  $(sort $(wildcard soundlib/plugins/*.cpp)) \
  $(sort $(wildcard soundlib/plugins/dmo/*.cpp)) \
  $(sort $(wildcard sounddsp/*.cpp)) \
+ 
+SOUNDLIB_TEST_CXX_SOURCES += \
+ $(sort $(wildcard src/openmpt/soundfile_write/*.cpp)) \
  
 
 ifeq ($(HACK_ARCHIVE_SUPPORT),1)
@@ -1193,12 +1493,12 @@ LIBOPENMPT_CXX_SOURCES += \
  $(SOUNDLIB_CXX_SOURCES) \
  $(sort $(wildcard libopenmpt/*.cpp)) \
  
+
 include/miniz/miniz$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
 include/miniz/miniz.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
 ifeq ($(LOCAL_ZLIB),1)
-LIBOPENMPT_C_SOURCES += $(LOCAL_ZLIB_SOURCES)
-LIBOPENMPTTEST_C_SOURCES += $(LOCAL_ZLIB_SOURCES)
-LIBOPENMPT_OBJECTS += $(LOCAL_ZLIB_OBJECTS)
+LIBOPENMPT_OBJECTS += $(OBJECTS_ZLIB)
+LIBOPENMPTTEST_OBJECTS += $(OBJECTS_ZLIB)
 else
 ifeq ($(NO_ZLIB),1)
 ifeq ($(NO_MINIZ),1)
@@ -1214,10 +1514,10 @@ endif
 include/minimp3/minimp3$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
 include/minimp3/minimp3.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
 ifeq ($(LOCAL_MPG123),1)
-LIBOPENMPT_C_SOURCES += $(LOCAL_MPG123_SOURCES)
-LIBOPENMPTTEST_C_SOURCES += $(LOCAL_MPG123_SOURCES)
-LIBOPENMPT_OBJECTS += $(LOCAL_MPG123_OBJECTS)
-LIBOPENMPT_LIBS += $(LOCAL_MPG123_LIBS)
+LIBOPENMPT_OBJECTS += $(OBJECTS_MPG123)
+LIBOPENMPTTEST_OBJECTS += $(OBJECTS_MPG123)
+LIBOPENMPT_LIBS += $(LIBS_MPG123)
+LIBOPENMPTTEST_LIBS += $(LIBS_MPG123)
 else
 ifeq ($(NO_MPG123),1)
 ifeq ($(NO_MINIMP3),1)
@@ -1234,13 +1534,15 @@ include/stb_vorbis/stb_vorbis$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
 include/stb_vorbis/stb_vorbis.test$(FLAVOUR_O).o : CFLAGS+=$(CFLAGS_SILENT)
 ifeq ($(LOCAL_VORBIS),1)
 ifeq ($(LOCAL_OGG),1)
-LIBOPENMPT_C_SOURCES += $(LOCAL_OGG_SOURCES)
-LIBOPENMPTTEST_C_SOURCES += $(LOCAL_OGG_SOURCES)
-LIBOPENMPT_OBJECTS += $(LOCAL_OGG_OBJECTS)
+LIBOPENMPT_OBJECTS += $(OBJECTS_OGG)
+LIBOPENMPTTEST_OBJECTS += $(OBJECTS_OGG)
+LIBOPENMPT_LIBS += $(LIBS_OGG)
+LIBOPENMPTTEST_LIBS += $(LIBS_OGG)
 endif
-LIBOPENMPT_C_SOURCES += $(LOCAL_VORBIS_SOURCES)
-LIBOPENMPTTEST_C_SOURCES += $(LOCAL_VORBIS_SOURCES)
-LIBOPENMPT_OBJECTS += $(LOCAL_VORBIS_OBJECTS)
+LIBOPENMPT_OBJECTS += $(OBJECTS_VORBIS)
+LIBOPENMPTTEST_OBJECTS += $(OBJECTS_VORBIS)
+LIBOPENMPT_LIBS += $(LIBS_VORBIS)
+LIBOPENMPTTEST_LIBS += $(LIBS_VORBIS)
 else
 ifeq ($(NO_OGG),1)
 ifeq ($(NO_STBVORBIS),1)
@@ -1315,15 +1617,16 @@ OPENMPT123_CXX_SOURCES += \
 OPENMPT123_C_SOURCES += \
  $(sort $(wildcard openmpt123/*.c)) \
  
-OPENMPT123_OBJECTS += $(OPENMPT123_CXX_SOURCES:.cpp=$(FLAVOUR_O).o) $(OPENMPT123_C_SOURCES:.c=$(FLAVOUR_O).o)
+OPENMPT123_OBJECTS += $(OPENMPT123_CXX_SOURCES:.cpp=.openmpt123$(FLAVOUR_O).o) $(OPENMPT123_C_SOURCES:.c=.openmpt123$(FLAVOUR_O).o)
 OPENMPT123_DEPENDS = $(OPENMPT123_OBJECTS:$(FLAVOUR_O).o=$(FLAVOUR_O).d)
 ALL_OBJECTS += $(OPENMPT123_OBJECTS)
 ALL_DEPENDS += $(OPENMPT123_DEPENDS)
 
 
 LIBOPENMPTTEST_CXX_SOURCES += \
- test/libopenmpt_test.cpp \
+ libopenmpt/libopenmpt_test/libopenmpt_test.cpp \
  $(SOUNDLIB_CXX_SOURCES) \
+ $(SOUNDLIB_TEST_CXX_SOURCES) \
  test/mpt_tests_base.cpp \
  test/mpt_tests_binary.cpp \
  test/mpt_tests_crc.cpp \
@@ -1343,8 +1646,8 @@ LIBOPENMPTTEST_CXX_SOURCES += \
 
 LIBOPENMPTTEST_C_SOURCES += \
  
-LIBOPENMPTTEST_OBJECTS = $(LIBOPENMPTTEST_CXX_SOURCES:.cpp=.test$(FLAVOUR_O).o) $(LIBOPENMPTTEST_C_SOURCES:.c=.test$(FLAVOUR_O).o)
-LIBOPENMPTTEST_DEPENDS = $(LIBOPENMPTTEST_CXX_SOURCES:.cpp=.test$(FLAVOUR_O).d) $(LIBOPENMPTTEST_C_SOURCES:.c=.test$(FLAVOUR_O).d)
+LIBOPENMPTTEST_OBJECTS += $(LIBOPENMPTTEST_CXX_SOURCES:.cpp=.test$(FLAVOUR_O).o) $(LIBOPENMPTTEST_C_SOURCES:.c=.test$(FLAVOUR_O).o)
+LIBOPENMPTTEST_DEPENDS = $(LIBOPENMPTTEST_OBJECTS:$(FLAVOUR_O).o=$(FLAVOUR_O).d)
 ALL_OBJECTS += $(LIBOPENMPTTEST_OBJECTS)
 ALL_DEPENDS += $(LIBOPENMPTTEST_DEPENDS)
 
@@ -1425,6 +1728,9 @@ ifeq ($(SHARED_SONAME),1)
 LIBOPENMPT_LDFLAGS += -Wl,-soname,$(LIBOPENMPT_SONAME)
 endif
 
+MISC_OUTPUTS += bin/distversion
+MISC_OUTPUTS += bin/distversion-pure
+MISC_OUTPUTS += bin/distversion-tarball
 MISC_OUTPUTS += bin/$(FLAVOUR_DIR)empty.cpp
 MISC_OUTPUTS += bin/$(FLAVOUR_DIR)empty.out
 MISC_OUTPUTS += bin/$(FLAVOUR_DIR)openmpt123$(EXESUFFIX).norpath
@@ -1720,194 +2026,201 @@ bin/$(FLAVOUR_DIR)dist-doc/libopenmpt-$(DIST_LIBOPENMPT_VERSION).doc.tar: docs
 
 .PHONY: bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION).makefile.tar
 bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION).makefile.tar: bin/$(FLAVOUR_DIR)dist.mk bin/$(FLAVOUR_DIR)svn_version_dist.h
-	mkdir -p bin/$(FLAVOUR_DIR)dist-tar
-	rm -rf bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build
-	mkdir -p bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc
-	mkdir -p bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include
-	mkdir -p bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src
-	mkdir -p bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt
-	mkdir -p bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt
-	svn export ./LICENSE            bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE
-	svn export ./README.md          bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/README.md
-	svn export ./Makefile           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Makefile
-	svn export ./.clang-format      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/.clang-format
-	svn export ./bin                bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin
-	svn export ./build/download_externals.sh bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/download_externals.sh
-	svn export ./build/android_ndk  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/android_ndk
-	svn export ./build/djgpp        bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/djgpp
-	svn export ./build/make         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/make
-	svn export ./build/svn_version  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/svn_version
-	svn export ./build/xcode-ios    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/xcode-ios
-	svn export ./build/xcode-macosx bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/xcode-macosx
-	svn export ./common             bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/common
-	svn export ./doc/contributing.md          bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/contributing.md
-	svn export ./doc/libopenmpt_styleguide.md bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/libopenmpt_styleguide.md
-	svn export ./doc/module_formats.md        bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/module_formats.md
-	svn export ./soundlib           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/soundlib
-	svn export ./sounddsp           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/sounddsp
-	svn export ./src/mpt/.clang-format bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/.clang-format
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-tar
+	rm -rf                                        bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt
+	svn export ./LICENSE                          bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE
+	svn export ./README.md                        bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/README.md
+	svn export ./Makefile                         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Makefile
+	svn export ./.clang-format                    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/.clang-format
+	svn export ./bin                              bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin
+	svn export ./build/download_externals.sh      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/download_externals.sh
+	svn export ./build/android_ndk                bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/android_ndk
+	svn export ./build/djgpp                      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/djgpp
+	svn export ./build/make                       bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/make
+	svn export ./build/svn_version                bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/svn_version
+	svn export ./build/xcode-ios                  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/xcode-ios
+	svn export ./build/xcode-macosx               bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/xcode-macosx
+	svn export ./common                           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/common
+	svn export ./doc/contributing.md              bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/contributing.md
+	svn export ./doc/libopenmpt_styleguide.md     bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/libopenmpt_styleguide.md
+	svn export ./doc/module_formats.md            bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/module_formats.md
+	svn export ./soundlib                         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/soundlib
+	svn export ./sounddsp                         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/sounddsp
+	svn export ./src/mpt/.clang-format            bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/.clang-format
 	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/LICENSE.BSD-3-Clause.txt
-	svn export ./src/mpt/LICENSE.BSL-1.0.txt bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/LICENSE.BSL-1.0.txt
-	svn export ./src/mpt/arch           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/arch
-	svn export ./src/mpt/audio          bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/audio
-	svn export ./src/mpt/base           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/base
-	svn export ./src/mpt/binary         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/binary
-	svn export ./src/mpt/check          bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/check
-	svn export ./src/mpt/crc            bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/crc
-	#svn export ./src/mpt/crypto         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/crypto
-	svn export ./src/mpt/detect         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/detect
-	svn export ./src/mpt/endian         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/endian
-	svn export ./src/mpt/environment    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/environment
-	svn export ./src/mpt/exception      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/exception
-	svn export ./src/mpt/format         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/format
-	#svn export ./src/mpt/fs             bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/fs
-	svn export ./src/mpt/io             bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io
-	svn export ./src/mpt/io_file        bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file
-	svn export ./src/mpt/io_file_adapter bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_adapter
-	svn export ./src/mpt/io_file_read   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_read
-	svn export ./src/mpt/io_file_unique bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_unique
-	svn export ./src/mpt/io_read        bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_read
-	svn export ./src/mpt/io_write       bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_write
-	#svn export ./src/mpt/json           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/json
-	#svn export ./src/mpt/library        bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/library
-	svn export ./src/mpt/mutex          bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/mutex
-	svn export ./src/mpt/out_of_memory  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/out_of_memory
-	svn export ./src/mpt/osinfo         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/osinfo
-	svn export ./src/mpt/parse          bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/parse
-	svn export ./src/mpt/path           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/path
-	svn export ./src/mpt/random         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/random
-	svn export ./src/mpt/string         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/string
-	svn export ./src/mpt/string_transcode bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/string_transcode
-	svn export ./src/mpt/system_error   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/system_error
-	svn export ./src/mpt/test           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/test
-	svn export ./src/mpt/uuid           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/uuid
-	#svn export ./src/mpt/uuid_namespace bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/uuid_namespace
-	svn export ./src/openmpt/all        bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/all
-	svn export ./src/openmpt/base       bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/base
-	svn export ./src/openmpt/logging    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/logging
-	svn export ./src/openmpt/random     bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/random
-	svn export ./src/openmpt/soundbase  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/soundbase
-	svn export ./test               bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test
-	rm bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test/mpt_tests_crypto.cpp
-	rm bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test/mpt_tests_uuid_namespace.cpp
-	svn export ./libopenmpt         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/libopenmpt
-	svn export ./examples           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/examples
-	svn export ./openmpt123         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123
-	svn export ./contrib            bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/contrib
-	svn export ./include/allegro42  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/allegro42
-	svn export ./include/cwsdpmi    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/cwsdpmi
-	svn export ./include/minimp3    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/minimp3
-	svn export ./include/miniz      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/miniz
-	svn export ./include/stb_vorbis bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/stb_vorbis
-	cp bin/$(FLAVOUR_DIR)dist.mk bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/dist.mk
-	cp bin/$(FLAVOUR_DIR)svn_version_dist.h bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/svn_version/svn_version.h
+	svn export ./src/mpt/LICENSE.BSL-1.0.txt      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/LICENSE.BSL-1.0.txt
+	svn export ./src/mpt/arch                     bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/arch
+	svn export ./src/mpt/audio                    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/audio
+	svn export ./src/mpt/base                     bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/base
+	svn export ./src/mpt/binary                   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/binary
+	svn export ./src/mpt/check                    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/check
+	svn export ./src/mpt/crc                      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/crc
+	#svn export ./src/mpt/crypto                   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/crypto
+	svn export ./src/mpt/detect                   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/detect
+	svn export ./src/mpt/endian                   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/endian
+	svn export ./src/mpt/environment              bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/environment
+	svn export ./src/mpt/exception                bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/exception
+	svn export ./src/mpt/format                   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/format
+	#svn export ./src/mpt/fs                       bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/fs
+	svn export ./src/mpt/io                       bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io
+	svn export ./src/mpt/io_file                  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file
+	svn export ./src/mpt/io_file_adapter          bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_adapter
+	svn export ./src/mpt/io_file_read             bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_read
+	svn export ./src/mpt/io_file_unique           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_unique
+	svn export ./src/mpt/io_read                  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_read
+	svn export ./src/mpt/io_write                 bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_write
+	#svn export ./src/mpt/json                     bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/json
+	#svn export ./src/mpt/library                  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/library
+	svn export ./src/mpt/main                     bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/main
+	svn export ./src/mpt/mutex                    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/mutex
+	svn export ./src/mpt/out_of_memory            bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/out_of_memory
+	svn export ./src/mpt/osinfo                   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/osinfo
+	svn export ./src/mpt/parse                    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/parse
+	svn export ./src/mpt/path                     bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/path
+	svn export ./src/mpt/random                   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/random
+	svn export ./src/mpt/string                   bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/string
+	svn export ./src/mpt/string_transcode         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/string_transcode
+	svn export ./src/mpt/system_error             bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/system_error
+	svn export ./src/mpt/test                     bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/test
+	svn export ./src/mpt/uuid                     bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/uuid
+	#svn export ./src/mpt/uuid_namespace           bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/uuid_namespace
+	svn export ./src/openmpt/all                  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/all
+	svn export ./src/openmpt/base                 bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/base
+	svn export ./src/openmpt/fileformat_base      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/fileformat_base
+	svn export ./src/openmpt/logging              bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/logging
+	svn export ./src/openmpt/random               bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/random
+	svn export ./src/openmpt/soundbase            bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/soundbase
+	svn export ./src/openmpt/soundfile_data       bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/soundfile_data
+	svn export ./src/openmpt/soundfile_write      bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/soundfile_write
+	svn export ./test                             bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test
+	rm                                            bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test/mpt_tests_crypto.cpp
+	rm                                            bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test/mpt_tests_uuid_namespace.cpp
+	svn export ./libopenmpt                       bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/libopenmpt
+	svn export ./examples                         bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/examples
+	svn export ./openmpt123                       bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123
+	svn export ./contrib                          bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/contrib
+	svn export ./include/allegro42                bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/allegro42
+	svn export ./include/cwsdpmi                  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/cwsdpmi
+	svn export ./include/minimp3                  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/minimp3
+	svn export ./include/miniz                    bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/miniz
+	svn export ./include/stb_vorbis               bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/stb_vorbis
+	cp bin/$(FLAVOUR_DIR)dist.mk                  bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/dist.mk
+	cp bin/$(FLAVOUR_DIR)svn_version_dist.h       bin/$(FLAVOUR_DIR)dist-tar/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/svn_version/svn_version.h
 	cd bin/$(FLAVOUR_DIR)dist-tar/ && tar cv --numeric-owner --owner=0 --group=0 libopenmpt-$(DIST_LIBOPENMPT_VERSION) > libopenmpt-$(DIST_LIBOPENMPT_VERSION).makefile.tar
 
 .PHONY: bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION).msvc.zip
 bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION).msvc.zip: bin/$(FLAVOUR_DIR)dist.mk bin/$(FLAVOUR_DIR)svn_version_dist.h
-	mkdir -p bin/$(FLAVOUR_DIR)dist-zip
-	rm -rf bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build
-	mkdir -p bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/premake
-	mkdir -p bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc
-	mkdir -p bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include
-	mkdir -p bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src
-	mkdir -p bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt
-	mkdir -p bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt
-	svn export ./LICENSE               bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE               --native-eol CRLF
-	svn export ./README.md             bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/README.md             --native-eol CRLF
-	svn export ./Makefile              bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Makefile              --native-eol CRLF
-	svn export ./.clang-format         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/.clang-format         --native-eol CRLF
-	svn export ./bin                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin                   --native-eol CRLF
-	svn export ./build/premake/def            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/premake/def            --native-eol CRLF
-	svn export ./build/premake/inc            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/premake/inc            --native-eol CRLF
-	svn export ./build/premake/lnk            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/premake/lnk            --native-eol CRLF
-	svn export ./build/scriptlib              bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/scriptlib              --native-eol CRLF
-	svn export ./build/svn_version            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/svn_version            --native-eol CRLF
-	svn export ./build/vs                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs                     --native-eol CRLF
-	svn export ./build/vs2017winxp            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2017winxp            --native-eol CRLF
-	svn export ./build/vs2019win7             bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2019win7             --native-eol CRLF
-	svn export ./build/vs2019win81            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2019win81            --native-eol CRLF
-	svn export ./build/vs2019win10            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2019win10            --native-eol CRLF
-	svn export ./build/vs2019win10uwp         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2019win10uwp         --native-eol CRLF
-	svn export ./build/vs2022win7             bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win7             --native-eol CRLF
-	svn export ./build/vs2022win81            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win81            --native-eol CRLF
-	svn export ./build/vs2022win10            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win10            --native-eol CRLF
-	svn export ./build/vs2022win10uwp         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win10uwp         --native-eol CRLF
-	svn export ./build/vs2022win10clang       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win10clang       --native-eol CRLF
-	svn export ./build/download_externals.cmd bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/download_externals.cmd --native-eol CRLF
-	svn export ./common                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/common                --native-eol CRLF
-	svn export ./doc/contributing.md          bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/contributing.md          --native-eol CRLF
-	svn export ./doc/libopenmpt_styleguide.md bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/libopenmpt_styleguide.md --native-eol CRLF
-	svn export ./doc/module_formats.md        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/module_formats.md        --native-eol CRLF
-	svn export ./soundlib              bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/soundlib              --native-eol CRLF
-	svn export ./sounddsp              bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/sounddsp              --native-eol CRLF
-	svn export ./src/mpt/.clang-format bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/.clang-format --native-eol CRLF
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-zip
+	rm -rf                                        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/premake
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt
+	mkdir -p                                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt
+	svn export ./LICENSE                          bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE                          --native-eol CRLF
+	svn export ./README.md                        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/README.md                        --native-eol CRLF
+	svn export ./Makefile                         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Makefile                         --native-eol CRLF
+	svn export ./.clang-format                    bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/.clang-format                    --native-eol CRLF
+	svn export ./bin                              bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin                              --native-eol CRLF
+	svn export ./build/premake/def                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/premake/def                --native-eol CRLF
+	svn export ./build/premake/inc                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/premake/inc                --native-eol CRLF
+	svn export ./build/premake/lnk                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/premake/lnk                --native-eol CRLF
+	svn export ./build/scriptlib                  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/scriptlib                  --native-eol CRLF
+	svn export ./build/svn_version                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/svn_version                --native-eol CRLF
+	svn export ./build/vs                         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs                         --native-eol CRLF
+	svn export ./build/vs2017winxpansi            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2017winxpansi            --native-eol CRLF
+	svn export ./build/vs2017winxp                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2017winxp                --native-eol CRLF
+	svn export ./build/vs2019win7                 bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2019win7                 --native-eol CRLF
+	svn export ./build/vs2022win7                 bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win7                 --native-eol CRLF
+	svn export ./build/vs2022win8                 bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win8                 --native-eol CRLF
+	svn export ./build/vs2022win81                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win81                --native-eol CRLF
+	svn export ./build/vs2022win10                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win10                --native-eol CRLF
+	svn export ./build/vs2022win10uwp             bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win10uwp             --native-eol CRLF
+	svn export ./build/vs2022win10clang           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/vs2022win10clang           --native-eol CRLF
+	svn export ./build/download_externals.cmd     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/download_externals.cmd     --native-eol CRLF
+	svn export ./common                           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/common                           --native-eol CRLF
+	svn export ./doc/contributing.md              bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/contributing.md              --native-eol CRLF
+	svn export ./doc/libopenmpt_styleguide.md     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/libopenmpt_styleguide.md     --native-eol CRLF
+	svn export ./doc/module_formats.md            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/doc/module_formats.md            --native-eol CRLF
+	svn export ./soundlib                         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/soundlib                         --native-eol CRLF
+	svn export ./sounddsp                         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/sounddsp                         --native-eol CRLF
+	svn export ./src/mpt/.clang-format            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/.clang-format            --native-eol CRLF
 	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/LICENSE.BSD-3-Clause.txt --native-eol CRLF
-	svn export ./src/mpt/LICENSE.BSL-1.0.txt bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/LICENSE.BSL-1.0.txt --native-eol CRLF
-	svn export ./src/mpt/arch           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/arch           --native-eol CRLF
-	svn export ./src/mpt/audio          bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/audio          --native-eol CRLF
-	svn export ./src/mpt/base           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/base           --native-eol CRLF
-	svn export ./src/mpt/binary         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/binary         --native-eol CRLF
-	svn export ./src/mpt/check          bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/check          --native-eol CRLF
-	svn export ./src/mpt/crc            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/crc            --native-eol CRLF
-	#svn export ./src/mpt/crypto         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/crypto         --native-eol CRLF
-	svn export ./src/mpt/detect         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/detect         --native-eol CRLF
-	svn export ./src/mpt/endian         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/endian         --native-eol CRLF
-	svn export ./src/mpt/environment    bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/environment    --native-eol CRLF
-	svn export ./src/mpt/exception      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/exception      --native-eol CRLF
-	svn export ./src/mpt/format         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/format         --native-eol CRLF
-	#svn export ./src/mpt/fs             bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/fs             --native-eol CRLF
-	svn export ./src/mpt/io             bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io             --native-eol CRLF
-	svn export ./src/mpt/io_file        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file        --native-eol CRLF
-	svn export ./src/mpt/io_file_adapter bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_adapter --native-eol CRLF
-	svn export ./src/mpt/io_file_read   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_read   --native-eol CRLF
-	svn export ./src/mpt/io_file_unique bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_unique --native-eol CRLF
-	svn export ./src/mpt/io_read        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_read        --native-eol CRLF
-	svn export ./src/mpt/io_write       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_write       --native-eol CRLF
-	#svn export ./src/mpt/json           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/json           --native-eol CRLF
-	#svn export ./src/mpt/library        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/library        --native-eol CRLF
-	svn export ./src/mpt/mutex          bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/mutex          --native-eol CRLF
-	svn export ./src/mpt/out_of_memory  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/out_of_memory  --native-eol CRLF
-	svn export ./src/mpt/osinfo         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/osinfo         --native-eol CRLF
-	svn export ./src/mpt/parse          bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/parse          --native-eol CRLF
-	svn export ./src/mpt/path           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/path           --native-eol CRLF
-	svn export ./src/mpt/random         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/random         --native-eol CRLF
-	svn export ./src/mpt/string         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/string         --native-eol CRLF
-	svn export ./src/mpt/string_transcode bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/string_transcode --native-eol CRLF
-	svn export ./src/mpt/system_error   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/system_error   --native-eol CRLF
-	svn export ./src/mpt/test           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/test           --native-eol CRLF
-	svn export ./src/mpt/uuid           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/uuid           --native-eol CRLF
-	#svn export ./src/mpt/uuid_namespace bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/uuid_namespace --native-eol CRLF
-	svn export ./src/openmpt/all        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/all       --native-eol CRLF
-	svn export ./src/openmpt/base       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/base      --native-eol CRLF
-	svn export ./src/openmpt/logging    bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/logging   --native-eol CRLF
-	svn export ./src/openmpt/random     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/random    --native-eol CRLF
-	svn export ./src/openmpt/soundbase  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/soundbase --native-eol CRLF
-	svn export ./test                  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test                  --native-eol CRLF
-	rm bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test/mpt_tests_crypto.cpp
-	rm bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test/mpt_tests_uuid_namespace.cpp
-	svn export ./libopenmpt            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/libopenmpt            --native-eol CRLF
-	svn export ./examples              bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/examples              --native-eol CRLF
-	svn export ./openmpt123            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123            --native-eol CRLF
-	svn export ./contrib               bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/contrib               --native-eol CRLF
-	svn export ./include/minimp3       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/minimp3       --native-eol CRLF
-	svn export ./include/miniz         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/miniz         --native-eol CRLF
-	svn export ./include/mpg123        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/mpg123        --native-eol CRLF
-	svn export ./include/flac          bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/flac          --native-eol CRLF
-	svn export ./include/portaudio     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/portaudio     --native-eol CRLF
-	svn export ./include/ogg           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/ogg           --native-eol CRLF
-	svn export ./include/pugixml       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/pugixml       --native-eol CRLF
-	svn export ./include/stb_vorbis    bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/stb_vorbis    --native-eol CRLF
-	svn export ./include/vorbis        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/vorbis        --native-eol CRLF
-	svn export ./include/winamp        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/winamp        --native-eol CRLF
-	svn export ./include/xmplay        bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/xmplay        --native-eol CRLF
-	svn export ./include/zlib          bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/zlib          --native-eol CRLF
-	cp bin/$(FLAVOUR_DIR)dist.mk bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/dist.mk
-	cp bin/$(FLAVOUR_DIR)svn_version_dist.h bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/svn_version/svn_version.h
+	svn export ./src/mpt/LICENSE.BSL-1.0.txt      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/LICENSE.BSL-1.0.txt      --native-eol CRLF
+	svn export ./src/mpt/arch                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/arch                     --native-eol CRLF
+	svn export ./src/mpt/audio                    bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/audio                    --native-eol CRLF
+	svn export ./src/mpt/base                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/base                     --native-eol CRLF
+	svn export ./src/mpt/binary                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/binary                   --native-eol CRLF
+	svn export ./src/mpt/check                    bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/check                    --native-eol CRLF
+	svn export ./src/mpt/crc                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/crc                      --native-eol CRLF
+	#svn export ./src/mpt/crypto                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/crypto                   --native-eol CRLF
+	svn export ./src/mpt/detect                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/detect                   --native-eol CRLF
+	svn export ./src/mpt/endian                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/endian                   --native-eol CRLF
+	svn export ./src/mpt/environment              bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/environment              --native-eol CRLF
+	svn export ./src/mpt/exception                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/exception                --native-eol CRLF
+	svn export ./src/mpt/format                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/format                   --native-eol CRLF
+	#svn export ./src/mpt/fs                       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/fs                       --native-eol CRLF
+	svn export ./src/mpt/io                       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io                       --native-eol CRLF
+	svn export ./src/mpt/io_file                  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file                  --native-eol CRLF
+	svn export ./src/mpt/io_file_adapter           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_adapter         --native-eol CRLF
+	svn export ./src/mpt/io_file_read             bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_read             --native-eol CRLF
+	svn export ./src/mpt/io_file_unique           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_file_unique           --native-eol CRLF
+	svn export ./src/mpt/io_read                  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_read                  --native-eol CRLF
+	svn export ./src/mpt/io_write                 bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/io_write                 --native-eol CRLF
+	#svn export ./src/mpt/json                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/json                     --native-eol CRLF
+	#svn export ./src/mpt/library                  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/library                  --native-eol CRLF
+	svn export ./src/mpt/main                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/main                     --native-eol CRLF
+	svn export ./src/mpt/mutex                    bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/mutex                    --native-eol CRLF
+	svn export ./src/mpt/out_of_memory            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/out_of_memory            --native-eol CRLF
+	svn export ./src/mpt/osinfo                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/osinfo                   --native-eol CRLF
+	svn export ./src/mpt/parse                    bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/parse                    --native-eol CRLF
+	svn export ./src/mpt/path                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/path                     --native-eol CRLF
+	svn export ./src/mpt/random                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/random                   --native-eol CRLF
+	svn export ./src/mpt/string                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/string                   --native-eol CRLF
+	svn export ./src/mpt/string_transcode         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/string_transcode         --native-eol CRLF
+	svn export ./src/mpt/system_error             bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/system_error             --native-eol CRLF
+	svn export ./src/mpt/test                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/test                     --native-eol CRLF
+	svn export ./src/mpt/uuid                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/uuid                     --native-eol CRLF
+	#svn export ./src/mpt/uuid_namespace           bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/mpt/uuid_namespace           --native-eol CRLF
+	svn export ./src/openmpt/all                  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/all                  --native-eol CRLF
+	svn export ./src/openmpt/base                 bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/base                 --native-eol CRLF
+	svn export ./src/openmpt/fileformat_base      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/fileformat_base      --native-eol CRLF
+	svn export ./src/openmpt/logging              bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/logging              --native-eol CRLF
+	svn export ./src/openmpt/random               bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/random               --native-eol CRLF
+	svn export ./src/openmpt/soundbase            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/soundbase            --native-eol CRLF
+	svn export ./src/openmpt/soundfile_data       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/soundfile_data       --native-eol CRLF
+	svn export ./src/openmpt/soundfile_write      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/src/openmpt/soundfile_write      --native-eol CRLF
+	svn export ./test                             bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test                             --native-eol CRLF
+	rm                                            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test/mpt_tests_crypto.cpp
+	rm                                            bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/test/mpt_tests_uuid_namespace.cpp
+	svn export ./libopenmpt                       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/libopenmpt                       --native-eol CRLF
+	svn export ./examples                         bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/examples                         --native-eol CRLF
+	svn export ./openmpt123                       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123                       --native-eol CRLF
+	svn export ./contrib                          bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/contrib                          --native-eol CRLF
+	svn export ./include/minimp3                  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/minimp3                  --native-eol CRLF
+	svn export ./include/miniz                    bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/miniz                    --native-eol CRLF
+	svn export ./include/mpg123                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/mpg123                   --native-eol CRLF
+	svn export ./include/flac                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/flac                     --native-eol CRLF
+	svn export ./include/portaudio                bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/portaudio                --native-eol CRLF
+	svn export ./include/ogg                      bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/ogg                      --native-eol CRLF
+	svn export ./include/pugixml                  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/pugixml                  --native-eol CRLF
+	svn export ./include/stb_vorbis               bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/stb_vorbis               --native-eol CRLF
+	svn export ./include/vorbis                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/vorbis                   --native-eol CRLF
+	svn export ./include/winamp                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/winamp                   --native-eol CRLF
+	svn export ./include/xmplay                   bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/xmplay                   --native-eol CRLF
+	svn export ./include/zlib                     bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/include/zlib                     --native-eol CRLF
+	cp bin/$(FLAVOUR_DIR)dist.mk                  bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/dist.mk
+	cp bin/$(FLAVOUR_DIR)svn_version_dist.h       bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/build/svn_version/svn_version.h
 	cd bin/$(FLAVOUR_DIR)dist-zip/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/ && zip -r ../libopenmpt-$(DIST_LIBOPENMPT_VERSION).msvc.zip --compression-method deflate -9 *
 
 .PHONY: bin/$(FLAVOUR_DIR)dist-zip/OpenMPT-src-$(DIST_OPENMPT_VERSION).zip
@@ -1920,125 +2233,130 @@ bin/$(FLAVOUR_DIR)dist-zip/OpenMPT-src-$(DIST_OPENMPT_VERSION).zip: bin/$(FLAVOU
 
 .PHONY: bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION).dev.js.tar
 bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION).dev.js.tar:
-	mkdir -p bin/$(FLAVOUR_DIR)dist-js
-	rm -rf                                       bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses
-	svn export ./LICENSE                         bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/license.txt
-	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.mpt.BSD-3-Clause.txt
-	svn export ./src/mpt/LICENSE.BSL-1.0.txt     bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.mpt.BSL-1.0.txt
-	svn export ./include/minimp3/LICENSE         bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.minimp3.txt
-	svn export ./include/miniz/miniz.c           bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.miniz.txt
-	svn export ./include/stb_vorbis/stb_vorbis.c bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.stb_vorbis.txt
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)all
-	cp bin/$(FLAVOUR_DIR)stage/all/libopenmpt.js               bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)all/libopenmpt.js
-	cp bin/$(FLAVOUR_DIR)stage/all/libopenmpt.wasm             bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)all/libopenmpt.wasm
-	cp bin/$(FLAVOUR_DIR)stage/all/libopenmpt.wasm.js          bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)all/libopenmpt.wasm.js
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)wasm
-	cp bin/$(FLAVOUR_DIR)stage/wasm/libopenmpt.js              bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)wasm/libopenmpt.js
-	cp bin/$(FLAVOUR_DIR)stage/wasm/libopenmpt.wasm            bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)wasm/libopenmpt.wasm
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)js
-	cp bin/$(FLAVOUR_DIR)stage/js/libopenmpt.js                bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)js/libopenmpt.js
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-js
+	rm -rf                                              bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses
+	svn export ./LICENSE                                bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/license.txt
+	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt       bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.mpt.BSD-3-Clause.txt
+	svn export ./src/mpt/LICENSE.BSL-1.0.txt            bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.mpt.BSL-1.0.txt
+	svn export ./include/minimp3/LICENSE                bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.minimp3.txt
+	svn export ./include/miniz/miniz.c                  bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.miniz.txt
+	svn export ./include/stb_vorbis/stb_vorbis.c        bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/licenses/license.stb_vorbis.txt
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)all
+	cp bin/$(FLAVOUR_DIR)stage/all/libopenmpt.js        bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)all/libopenmpt.js
+	cp bin/$(FLAVOUR_DIR)stage/all/libopenmpt.wasm      bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)all/libopenmpt.wasm
+	cp bin/$(FLAVOUR_DIR)stage/all/libopenmpt.wasm.js   bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)all/libopenmpt.wasm.js
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)wasm
+	cp bin/$(FLAVOUR_DIR)stage/wasm/libopenmpt.js       bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)wasm/libopenmpt.js
+	cp bin/$(FLAVOUR_DIR)stage/wasm/libopenmpt.wasm     bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)wasm/libopenmpt.wasm
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)js
+	cp bin/$(FLAVOUR_DIR)stage/js/libopenmpt.js         bin/$(FLAVOUR_DIR)dist-js/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/bin/$(FLAVOUR_DIR)js/libopenmpt.js
 	cd bin/$(FLAVOUR_DIR)dist-js/ && tar cv --numeric-owner --owner=0 --group=0 libopenmpt-$(DIST_LIBOPENMPT_VERSION) > libopenmpt-$(DIST_LIBOPENMPT_VERSION).dev.js.tar
 
 .PHONY: bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION).bin.dos.zip
 bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION).bin.dos.zip:
 	mkdir -p bin/$(FLAVOUR_DIR)dist-dos
-	rm -rf                                       bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES
-	svn export ./LICENSE                         bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE.TXT          --native-eol CRLF
-	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MPT_BSD3.TXT --native-eol CRLF
-	svn export ./src/mpt/LICENSE.BSL-1.0.txt     bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MPT_BSL1.TXT --native-eol CRLF
-	cp include/allegro42/readme.txt              bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/ALLEGRO.TXT
-	cp include/cwsdpmi/bin/$(FLAVOUR_DIR)cwsdpmi.doc           bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/CWSDPMI.TXT
+	rm -rf                                              bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES
+	svn export ./LICENSE                                bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE.TXT           --native-eol CRLF
+	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt       bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MPT_BSD3.TXT --native-eol CRLF
+	svn export ./src/mpt/LICENSE.BSL-1.0.txt            bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MPT_BSL1.TXT --native-eol CRLF
+	cp include/allegro42/readme.txt                     bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/ALLEGRO.TXT
+	cp include/cwsdpmi/bin/$(FLAVOUR_DIR)cwsdpmi.doc    bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/CWSDPMI.TXT
 ifeq ($(ALLOW_LGPL),1)
-	svn export ./include/mpg123/COPYING          bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MPG123.TXT   --native-eol CRLF
-	svn export ./include/mpg123/AUTHORS          bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MPG123_A.TXT --native-eol CRLF
-	svn export ./include/vorbis/COPYING          bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/VORBIS.TXT   --native-eol CRLF
-	svn export ./include/zlib/README             bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/ZLIB.TXT     --native-eol CRLF
+	svn export ./include/mpg123/COPYING                 bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MPG123.TXT   --native-eol CRLF
+	svn export ./include/mpg123/AUTHORS                 bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MPG123_A.TXT --native-eol CRLF
+	svn export ./include/vorbis/COPYING                 bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/VORBIS.TXT   --native-eol CRLF
+	svn export ./include/zlib/README                    bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/ZLIB.TXT     --native-eol CRLF
 else
-	svn export ./include/minimp3/LICENSE         bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MINIMP3.TXT --native-eol CRLF
-	svn export ./include/miniz/miniz.c           bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MINIZ.TXT   --native-eol CRLF
-	svn export ./include/stb_vorbis/stb_vorbis.c bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/STBVORB.TXT --native-eol CRLF
+	svn export ./include/minimp3/LICENSE                bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MINIMP3.TXT  --native-eol CRLF
+	svn export ./include/miniz/miniz.c                  bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/MINIZ.TXT    --native-eol CRLF
+	svn export ./include/stb_vorbis/stb_vorbis.c        bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/STBVORB.TXT  --native-eol CRLF
 endif
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/SRC
-	cp build/externals/csdpmi7s.zip              bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/SRC/CSDPMI7S.ZIP
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/DJGPP
+	cp $(shell dirname $(shell which i386-pc-msdosdjgpp-gcc))/../license/copying     bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/DJGPP/COPYING
+	cp $(shell dirname $(shell which i386-pc-msdosdjgpp-gcc))/../license/copying.dj  bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/DJGPP/COPYING.DJ
+	cp $(shell dirname $(shell which i386-pc-msdosdjgpp-gcc))/../license/copying.lib bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/DJGPP/COPYING.LIB
+	cp $(shell dirname $(shell which i386-pc-msdosdjgpp-gcc))/../license/source.txt  bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSES/DJGPP/SOURCE.TXT
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/SRC
+	cp build/externals/csdpmi7s.zip                     bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/SRC/CSDPMI7S.ZIP
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN
 ifeq ($(ALLOW_LGPL),1)
 ifeq ($(ENABLE_DXE),1)
-	cp bin/$(FLAVOUR_DIR)mpg123.dxe              bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/MPG123.DXE
+	cp bin/$(FLAVOUR_DIR)mpg123.dxe                     bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/MPG123.DXE
 endif
 endif
-	cp bin/$(FLAVOUR_DIR)openmpt123.exe          bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/OMPT123.EXE
-	cp include/cwsdpmi/bin/cwsdpmi.doc           bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDPMI.DOC
-	cp include/cwsdpmi/bin/CWSDPMI.EXE           bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDPMI.EXE
-	cp include/cwsdpmi/bin/CWSDPR0.EXE           bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDPR0.EXE
-	cp include/cwsdpmi/bin/cwsparam.doc          bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSPARAM.DOC
-	cp include/cwsdpmi/bin/CWSPARAM.EXE          bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSPARAM.EXE
-	cp include/cwsdpmi/bin/CWSDSTUB.EXE          bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDSTUB.EXE
-	cp include/cwsdpmi/bin/CWSDSTR0.EXE          bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDSTR0.EXE
+	cp bin/$(FLAVOUR_DIR)openmpt123.exe                 bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/OMPT123.EXE
+	cp include/cwsdpmi/bin/cwsdpmi.doc                  bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDPMI.DOC
+	cp include/cwsdpmi/bin/CWSDPMI.EXE                  bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDPMI.EXE
+	cp include/cwsdpmi/bin/CWSDPR0.EXE                  bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDPR0.EXE
+	cp include/cwsdpmi/bin/cwsparam.doc                 bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSPARAM.DOC
+	cp include/cwsdpmi/bin/CWSPARAM.EXE                 bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSPARAM.EXE
+	cp include/cwsdpmi/bin/CWSDSTUB.EXE                 bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDSTUB.EXE
+	cp include/cwsdpmi/bin/CWSDSTR0.EXE                 bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/BIN/CWSDSTR0.EXE
 	cd bin/$(FLAVOUR_DIR)dist-dos/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/ && zip -r ../libopenmpt-$(DIST_LIBOPENMPT_VERSION).bin.dos.zip --compression-method deflate -9 *
 
 .PHONY: bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION).bin.retro.win98.zip
 bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION).bin.retro.win98.zip:
-	mkdir -p bin/$(FLAVOUR_DIR)dist-retro-win98
-	rm -rf                                       bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses
-	svn export ./LICENSE                         bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE.TXT --native-eol CRLF
-	svn export ./doc/libopenmpt/changelog.md     bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Changelog.txt --native-eol CRLF
-	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/license.mpt.BSD-3-Clause.txt --native-eol CRLF
-	svn export ./src/mpt/LICENSE.BSL-1.0.txt     bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/license.mpt.BSL-1.0.txt --native-eol CRLF
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win98
+	rm -rf                                              bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses
+	svn export ./LICENSE                                bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE.TXT --native-eol CRLF
+	svn export ./doc/libopenmpt/changelog.md            bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Changelog.txt --native-eol CRLF
+	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt       bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/license.mpt.BSD-3-Clause.txt --native-eol CRLF
+	svn export ./src/mpt/LICENSE.BSL-1.0.txt            bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/license.mpt.BSL-1.0.txt      --native-eol CRLF
 ifeq ($(ALLOW_LGPL),1)
-	svn export ./include/mpg123/COPYING          bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.mpg123.txt --native-eol CRLF
-	svn export ./include/mpg123/AUTHORS          bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.Authors.txt --native-eol CRLF
-	svn export ./include/vorbis/COPYING          bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.Vorbis.txt --native-eol CRLF
-	svn export ./include/zlib/README             bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.zlib.txt --native-eol CRLF
+	svn export ./include/mpg123/COPYING                 bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.mpg123.txt           --native-eol CRLF
+	svn export ./include/mpg123/AUTHORS                 bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.Authors.txt          --native-eol CRLF
+	svn export ./include/vorbis/COPYING                 bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.Vorbis.txt           --native-eol CRLF
+	svn export ./include/zlib/README                    bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.zlib.txt             --native-eol CRLF
 else
-	svn export ./include/minimp3/LICENSE         bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.minimp3.txt --native-eol CRLF
-	svn export ./include/miniz/miniz.c           bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.miniz.txt --native-eol CRLF
-	svn export ./include/stb_vorbis/stb_vorbis.c bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.stb_vorbis.txt --native-eol CRLF
+	svn export ./include/minimp3/LICENSE                bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.minimp3.txt          --native-eol CRLF
+	svn export ./include/miniz/miniz.c                  bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.miniz.txt            --native-eol CRLF
+	svn export ./include/stb_vorbis/stb_vorbis.c        bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.stb_vorbis.txt       --native-eol CRLF
 endif
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123
-	cp bin/$(FLAVOUR_DIR)openmpt123.exe                        bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123/openmpt123.exe
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay
-	svn export ./libopenmpt/xmp-openmpt/xmp-openmpt.txt  bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay/xmp-openmpt.txt --native-eol CRLF
-	cp bin/$(FLAVOUR_DIR)xmp-openmpt.dll                       bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay/xmp-openmpt.dll
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp
-	svn export ./libopenmpt/in_openmpt/in_openmpt.txt   bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp/in_openmpt.txt --native-eol CRLF
-	cp bin/$(FLAVOUR_DIR)in_openmpt.dll                        bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp/in_openmpt.dll
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123
+	cp bin/$(FLAVOUR_DIR)openmpt123.exe                 bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123/openmpt123.exe
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay
+	svn export ./libopenmpt/xmp-openmpt/xmp-openmpt.txt bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay/xmp-openmpt.txt                --native-eol CRLF
+	cp bin/$(FLAVOUR_DIR)xmp-openmpt.dll                bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay/xmp-openmpt.dll
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp
+	svn export ./libopenmpt/in_openmpt/in_openmpt.txt   bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp/in_openmpt.txt                 --native-eol CRLF
+	cp bin/$(FLAVOUR_DIR)in_openmpt.dll                 bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp/in_openmpt.dll
 	cd bin/$(FLAVOUR_DIR)dist-retro-win98/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/ && ../../../build/tools/7zip/7z a -tzip -mx=9 ../libopenmpt-$(DIST_LIBOPENMPT_VERSION).bin.retro.win98.zip *
 
 .PHONY: bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION).bin.retro.win95.zip
 bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION).bin.retro.win95.zip:
-	mkdir -p bin/$(FLAVOUR_DIR)dist-retro-win95
-	rm -rf                                       bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses
-	svn export ./LICENSE                         bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE.TXT --native-eol CRLF
-	svn export ./doc/libopenmpt/changelog.md     bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Changelog.txt --native-eol CRLF
-	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/license.mpt.BSD-3-Clause.txt --native-eol CRLF
-	svn export ./src/mpt/LICENSE.BSL-1.0.txt     bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/license.mpt.BSL-1.0.txt --native-eol CRLF
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win95
+	rm -rf                                              bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses
+	svn export ./LICENSE                                bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/LICENSE.TXT --native-eol CRLF
+	svn export ./doc/libopenmpt/changelog.md            bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Changelog.txt --native-eol CRLF
+	svn export ./src/mpt/LICENSE.BSD-3-Clause.txt       bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/license.mpt.BSD-3-Clause.txt --native-eol CRLF
+	svn export ./src/mpt/LICENSE.BSL-1.0.txt            bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/license.mpt.BSL-1.0.txt      --native-eol CRLF
 ifeq ($(ALLOW_LGPL),1)
-	svn export ./include/mpg123/COPYING          bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.mpg123.txt --native-eol CRLF
-	svn export ./include/mpg123/AUTHORS          bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.Authors.txt --native-eol CRLF
-	svn export ./include/vorbis/COPYING          bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.Vorbis.txt --native-eol CRLF
-	svn export ./include/zlib/README             bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.zlib.txt --native-eol CRLF
+	svn export ./include/mpg123/COPYING                 bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.mpg123.txt           --native-eol CRLF
+	svn export ./include/mpg123/AUTHORS                 bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.Authors.txt          --native-eol CRLF
+	svn export ./include/vorbis/COPYING                 bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.Vorbis.txt           --native-eol CRLF
+	svn export ./include/zlib/README                    bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.zlib.txt             --native-eol CRLF
 else
-	svn export ./include/minimp3/LICENSE         bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.minimp3.txt --native-eol CRLF
-	svn export ./include/miniz/miniz.c           bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.miniz.txt --native-eol CRLF
-	svn export ./include/stb_vorbis/stb_vorbis.c bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.stb_vorbis.txt --native-eol CRLF
+	svn export ./include/minimp3/LICENSE                bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.minimp3.txt          --native-eol CRLF
+	svn export ./include/miniz/miniz.c                  bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.miniz.txt            --native-eol CRLF
+	svn export ./include/stb_vorbis/stb_vorbis.c        bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Licenses/License.stb_vorbis.txt       --native-eol CRLF
 endif
-	mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123
-	cp bin/$(FLAVOUR_DIR)openmpt123.exe                        bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123/openmpt123.exe
-	#mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay
-	#svn export ./libopenmpt/xmp-openmpt/xmp-openmpt.txt  bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay/xmp-openmpt.txt --native-eol CRLF
-	#cp bin/$(FLAVOUR_DIR)xmp-openmpt.dll                       bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay/xmp-openmpt.dll
-	#mkdir -p                                     bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp
-	#svn export ./libopenmpt/in_openmpt/in_openmpt.txt   bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp/in_openmpt.txt --native-eol CRLF
-	#cp bin/$(FLAVOUR_DIR)in_openmpt.dll                        bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp/in_openmpt.dll
+	mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123
+	cp bin/$(FLAVOUR_DIR)openmpt123.exe                 bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/openmpt123/openmpt123.exe
+	#mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay
+	#svn export ./libopenmpt/xmp-openmpt/xmp-openmpt.txt bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay/xmp-openmpt.txt                --native-eol CRLF
+	#cp bin/$(FLAVOUR_DIR)xmp-openmpt.dll                bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/XMPlay/xmp-openmpt.dll
+	#mkdir -p                                            bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp
+	#svn export ./libopenmpt/in_openmpt/in_openmpt.txt   bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp/in_openmpt.txt                 --native-eol CRLF
+	#cp bin/$(FLAVOUR_DIR)in_openmpt.dll                 bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/Winamp/in_openmpt.dll
 	cd bin/$(FLAVOUR_DIR)dist-retro-win95/libopenmpt-$(DIST_LIBOPENMPT_VERSION)/ && 7z a -tzip -mx=9 ../libopenmpt-$(DIST_LIBOPENMPT_VERSION).bin.retro.win95.zip *
 
 bin/$(FLAVOUR_DIR)libopenmpt.a: $(LIBOPENMPT_OBJECTS) $(LIBOPENMPT_LIBS)
@@ -2092,10 +2410,10 @@ ifeq ($(SHARED_LIB),1)
 endif
 endif
 
-contrib/fuzzing/fuzz$(FLAVOUR_O).o: contrib/fuzzing/fuzz.c
-	$(INFO) [CC] $<
-	$(VERYSILENT)$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*$(FLAVOUR_O).d
-	$(SILENT)$(COMPILE.c) $(OUTPUT_OPTION) $<
+contrib/fuzzing/fuzz$(FLAVOUR_O).o: contrib/fuzzing/fuzz.cpp
+	$(INFO) [CXX] $<
+	$(VERYSILENT)$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -M -MT$@ $< > $*$(FLAVOUR_O).d
+	$(SILENT)$(COMPILE.cc) $(OUTPUT_OPTION) $<
 bin/$(FLAVOUR_DIR)fuzz$(EXESUFFIX): contrib/fuzzing/fuzz$(FLAVOUR_O).o $(OBJECTS_LIBOPENMPT) $(OUTPUT_LIBOPENMPT)
 	$(INFO) [LD] $@
 	$(SILENT)$(LINK.cc) $(LDFLAGS_LIBOPENMPT) contrib/fuzzing/fuzz$(FLAVOUR_O).o $(OBJECTS_LIBOPENMPT) $(LOADLIBES) $(LDLIBS) $(LDLIBS_LIBOPENMPT) -o $@
@@ -2241,12 +2559,12 @@ clean-dist:
 
 .PHONY: distversion
 distversion:
-	$(SILENT)echo "$(DIST_LIBOPENMPT_VERSION)"
+	$(SILENT)echo "$(DIST_LIBOPENMPT_VERSION)" > bin/distversion
 
 .PHONY: distversion-pure
 distversion-pure:
-	$(SILENT)echo "$(DIST_LIBOPENMPT_VERSION_PURE)"
+	$(SILENT)echo "$(DIST_LIBOPENMPT_VERSION_PURE)" > bin/distversion-pure
 
 .PHONY: distversion-tarball
 distversion-tarball:
-	$(SILENT)echo "$(DIST_LIBOPENMPT_TARBALL_VERSION)"
+	$(SILENT)echo "$(DIST_LIBOPENMPT_TARBALL_VERSION)" > bin/distversion-tarball

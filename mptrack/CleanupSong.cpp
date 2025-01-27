@@ -79,8 +79,8 @@ CModCleanupDlg::CleanupOptions const CModCleanupDlg::m_MutuallyExclusive[CModCle
 ///////////////////////////////////////////////////////////////////////
 // CModCleanupDlg
 
-BEGIN_MESSAGE_MAP(CModCleanupDlg, CDialog)
-	//{{AFX_MSG_MAP(CModTypeDlg)
+BEGIN_MESSAGE_MAP(CModCleanupDlg, DialogBase)
+	//{{AFX_MSG_MAP(CModCleanupDlg)
 	ON_COMMAND(IDC_BTN_CLEANUP_SONG,			&CModCleanupDlg::OnPresetCleanupSong)
 	ON_COMMAND(IDC_BTN_COMPO_CLEANUP,			&CModCleanupDlg::OnPresetCompoCleanup)
 
@@ -100,18 +100,16 @@ BEGIN_MESSAGE_MAP(CModCleanupDlg, CDialog)
 	ON_COMMAND(IDC_CHK_REMOVE_PLUGINS,			&CModCleanupDlg::OnVerifyMutualExclusive)
 	ON_COMMAND(IDC_CHK_RESET_VARIABLES,			&CModCleanupDlg::OnVerifyMutualExclusive)
 	ON_COMMAND(IDC_CHK_UNUSED_CHANNELS,			&CModCleanupDlg::OnVerifyMutualExclusive)
-
-	ON_NOTIFY_EX(TTN_NEEDTEXT, 0, &CModCleanupDlg::OnToolTipNotify)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
 
-CModCleanupDlg::CModCleanupDlg(CModDoc &modParent, CWnd *parent) : CDialog(IDD_CLEANUP_SONG, parent), modDoc(modParent) { }
+CModCleanupDlg::CModCleanupDlg(CModDoc &modParent, CWnd *parent) : DialogBase(IDD_CLEANUP_SONG, parent), modDoc(modParent) { }
 
 
 BOOL CModCleanupDlg::OnInitDialog()
 {
-	CDialog::OnInitDialog();
+	DialogBase::OnInitDialog();
 	for(int i = 0; i < kMaxCleanupOptions; i++)
 	{
 		CheckDlgButton(m_CleanupIDtoDlgID[i], (m_CheckBoxes[i]) ? BST_CHECKED : BST_UNCHECKED);
@@ -127,7 +125,6 @@ BOOL CModCleanupDlg::OnInitDialog()
 	GetDlgItem(m_CleanupIDtoDlgID[kCleanupInstruments])->EnableWindow((sndFile.GetNumInstruments() > 0) ? TRUE : FALSE);
 	GetDlgItem(m_CleanupIDtoDlgID[kRemoveAllInstruments])->EnableWindow((sndFile.GetNumInstruments() > 0) ? TRUE : FALSE);
 
-	EnableToolTips(TRUE);
 	return TRUE;
 }
 
@@ -168,20 +165,20 @@ void CModCleanupDlg::OnOK()
 		if(m_CheckBoxes[kRearrangeSamples]) modified |= RearrangeSamples();
 	}
 
-	// Plugins
-	if(m_CheckBoxes[kRemoveAllPlugins]) modified |= RemoveAllPlugins();
-	if(m_CheckBoxes[kCleanupPlugins]) modified |= RemoveUnusedPlugins();
-
 	// Create samplepack
 	if(m_CheckBoxes[kResetVariables]) modified |= ResetVariables();
 
 	// Remove unused channels
 	if(m_CheckBoxes[kCleanupChannels]) modified |= RemoveUnusedChannels();
 
+	// Plugins (done last because they can be referenced by both instruments and channels)
+	if(m_CheckBoxes[kRemoveAllPlugins]) modified |= RemoveAllPlugins();
+	if(m_CheckBoxes[kCleanupPlugins]) modified |= RemoveUnusedPlugins();
+
 	if(modified) modDoc.SetModified();
 	modDoc.UpdateAllViews(nullptr, UpdateHint().ModType());
 	logcapturer.ShowLog(true);
-	CDialog::OnOK();
+	DialogBase::OnOK();
 }
 
 
@@ -266,18 +263,10 @@ void CModCleanupDlg::OnPresetCompoCleanup()
 }
 
 
-BOOL CModCleanupDlg::OnToolTipNotify(UINT, NMHDR *pNMHDR, LRESULT *)
+CString CModCleanupDlg::GetToolTipText(UINT id, HWND) const
 {
-	TOOLTIPTEXT* pTTT = (TOOLTIPTEXT*)pNMHDR;
-	UINT_PTR nID = pNMHDR->idFrom;
-	if (pTTT->uFlags & TTF_IDISHWND)
-	{
-		// idFrom is actually the HWND of the tool
-		nID = ::GetDlgCtrlID((HWND)nID);
-	}
-
-	LPCTSTR lpszText = nullptr;
-	switch(nID)
+	LPCTSTR lpszText = _T("");
+	switch(id)
 	{
 	// patterns
 	case IDC_CHK_CLEANUP_PATTERNS:
@@ -333,12 +322,8 @@ BOOL CModCleanupDlg::OnToolTipNotify(UINT, NMHDR *pNMHDR, LRESULT *)
 	case IDC_CHK_UNUSED_CHANNELS:
 		lpszText = _T("Removes all empty pattern channels.");
 		break;
-	default:
-		lpszText = _T("");
-		break;
 	}
-	pTTT->lpszText = const_cast<LPTSTR>(lpszText);
-	return TRUE;
+	return lpszText;
 }
 
 
@@ -544,7 +529,7 @@ protected:
 		const auto origRepeatCount = sndFile.GetRepeatCount();
 		sndFile.SetRepeatCount(0);
 		sndFile.m_bIsRendering = true;
-		auto origPlayState = std::make_unique<CSoundFile::PlayState>(std::move(sndFile.m_PlayState));
+		auto origPlayState = std::make_unique<PlayState>(std::move(sndFile.m_PlayState));
 		mpt::reconstruct(sndFile.m_PlayState);
 		auto prevTime = timeGetTime();
 		uint64 renderedSamples = 0;
@@ -552,7 +537,7 @@ protected:
 		{
 			sndFile.ResetPlayPos();
 			sndFile.GetLength(eAdjust, GetLengthTarget(song.startOrder, song.startRow).StartPos(song.sequence, 0, 0));
-			sndFile.m_SongFlags.reset(SONG_PLAY_FLAGS);
+			sndFile.m_PlayState.m_flags.reset();
 			while(!m_abort)
 			{
 				auto tickSamples = sndFile.ReadOneTick();
@@ -784,7 +769,7 @@ bool CModCleanupDlg::OptimizeSamples()
 		return false;
 	}
 
-	for(SAMPLEINDEX smp = 1; smp <= sndFile.m_nSamples; smp++)
+	for(SAMPLEINDEX smp = 1; smp <= sndFile.GetNumSamples(); smp++)
 	{
 		ModSample &sample = sndFile.GetSample(smp);
 
@@ -1012,11 +997,11 @@ bool CModCleanupDlg::ResetVariables()
 	sndFile.m_MidiCfg.Reset();
 	
 	// Global vars
-	sndFile.m_nDefaultTempo.Set(125);
-	sndFile.m_nDefaultSpeed = 6;
 	sndFile.m_nDefaultGlobalVolume = MAX_GLOBAL_VOLUME;
 	sndFile.m_nSamplePreAmp = 48;
 	sndFile.m_nVSTiVolume = 48;
+	sndFile.Order().SetDefaultTempoInt(125);
+	sndFile.Order().SetDefaultSpeed(6);
 	sndFile.Order().SetRestartPos(0);
 
 	if(sndFile.Order().empty())
@@ -1041,7 +1026,8 @@ bool CModCleanupDlg::ResetVariables()
 
 	for(CHANNELINDEX chn = 0; chn < sndFile.GetNumChannels(); chn++)
 	{
-		sndFile.InitChannel(chn);
+		mpt::reconstruct(sndFile.ChnSettings[chn]);
+		modDoc.InitChannel(chn);
 	}
 
 	// reset samples

@@ -234,6 +234,9 @@
     <ClInclude Include="..\..\src\mpt\base\constexpr_throw.hpp">
       <Filter>src\mpt\base</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\mpt\base\debugging.hpp">
+      <Filter>src\mpt\base</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\mpt\base\detect.hpp">
       <Filter>src\mpt\base</Filter>
     </ClInclude>
@@ -255,7 +258,7 @@
     <ClInclude Include="..\..\src\mpt\base\detect_quirks.hpp">
       <Filter>src\mpt\base</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\mpt\base\floatingpoint.hpp">
+    <ClInclude Include="..\..\src\mpt\base\float.hpp">
       <Filter>src\mpt\base</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\mpt\base\integer.hpp">
@@ -315,6 +318,9 @@
     <ClInclude Include="..\..\src\mpt\base\tests\tests_base_math.hpp">
       <Filter>src\mpt\base\tests</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\mpt\base\tests\tests_base_numeric.hpp">
+      <Filter>src\mpt\base\tests</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\mpt\base\tests\tests_base_saturate_cast.hpp">
       <Filter>src\mpt\base\tests</Filter>
     </ClInclude>
@@ -323,6 +329,9 @@
     </ClInclude>
     <ClInclude Include="..\..\src\mpt\base\tests\tests_base_wrapping_divide.hpp">
       <Filter>src\mpt\base\tests</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\mpt\base\type_traits.hpp">
+      <Filter>src\mpt\base</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\mpt\base\utility.hpp">
       <Filter>src\mpt\base</Filter>
@@ -349,6 +358,9 @@
       <Filter>src\mpt\check</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\mpt\check\libc.hpp">
+      <Filter>src\mpt\check</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\mpt\check\libcxx.hpp">
       <Filter>src\mpt\check</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\mpt\check\mfc.hpp">
@@ -558,6 +570,9 @@
     <ClInclude Include="..\..\src\mpt\io_read\filedata_base_unseekable.hpp">
       <Filter>src\mpt\io_read</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\mpt\io_read\filedata_base_unseekable_buffer.hpp">
+      <Filter>src\mpt\io_read</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\mpt\io_read\filedata_callbackstream.hpp">
       <Filter>src\mpt\io_read</Filter>
     </ClInclude>
@@ -623,6 +638,9 @@
     </ClInclude>
     <ClInclude Include="..\..\src\mpt\path\path.hpp">
       <Filter>src\mpt\path</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\mpt\random\any_engine.hpp">
+      <Filter>src\mpt\random</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\mpt\random\crand.hpp">
       <Filter>src\mpt\random</Filter>
@@ -697,6 +715,9 @@
       <Filter>src\mpt\uuid_namespace</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\openmpt\all\BuildSettings.hpp">
+      <Filter>src\openmpt\all</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\openmpt\all\PlatformFixes.hpp">
       <Filter>src\openmpt\all</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\openmpt\base\Endian.hpp">

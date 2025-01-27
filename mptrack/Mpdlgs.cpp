@@ -10,16 +10,19 @@
 
 #include "stdafx.h"
 #include "Mpdlgs.h"
+#include "DialogBase.h"
 #include "dlg_misc.h"
 #include "ImageLists.h"
 #include "Mainfrm.h"
 #include "Moddoc.h"
 #include "Mptrack.h"
 #include "Reporting.h"
+#include "resource.h"
 #include "Sndfile.h"
 #include "WindowMessages.h"
 #include "../common/Dither.h"
 #include "../common/mptStringBuffer.h"
+#include "../soundlib/mod_specifications.h"
 #include "mpt/parse/parse.hpp"
 #include "openmpt/sounddevice/SoundDevice.hpp"
 #include "openmpt/sounddevice/SoundDeviceManager.hpp"
@@ -1017,10 +1020,18 @@ void COptionsMixer::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_EDIT_VOLRAMP_SAMPLES_UP, m_CInfoRampUp);
 	DDX_Control(pDX, IDC_EDIT_VOLRAMP_SAMPLES_DOWN, m_CInfoRampDown);
 	DDX_Control(pDX, IDC_SLIDER_STEREOSEP, m_SliderStereoSep);
-	// check box soft pan
 	DDX_Control(pDX, IDC_SLIDER_PREAMP, m_SliderPreAmp);
 	//}}AFX_DATA_MAP
 }
+
+
+COptionsMixer::COptionsMixer()
+	: CPropertyPage{IDD_OPTIONS_MIXER}
+{
+	m_CEditRampUp.SetAccessibleSuffix(_T("microseconds up"));
+	m_CEditRampDown.SetAccessibleSuffix(_T("microseconds down"));
+}
+
 
 
 BOOL COptionsMixer::OnInitDialog()
@@ -1234,13 +1245,13 @@ void COptionsMixer::OnOK()
 
 #ifndef NO_EQ
 
-class CEQSavePresetDlg: public CDialog
+class CEQSavePresetDlg : public DialogBase
 {
 protected:
 	EQPreset &m_EQ;
 
 public:
-	CEQSavePresetDlg(EQPreset &eq, CWnd *parent = nullptr) : CDialog(IDD_SAVEPRESET, parent), m_EQ(eq) { }
+	CEQSavePresetDlg(EQPreset &eq, CWnd *parent = nullptr) : DialogBase(IDD_SAVEPRESET, parent), m_EQ(eq) { }
 	BOOL OnInitDialog();
 	void OnOK();
 };
@@ -1277,7 +1288,7 @@ void CEQSavePresetDlg::OnOK()
 		mpt::String::WriteAutoBuf(m_EQ.szName) = mpt::ToCharset(mpt::Charset::Locale, s);
 		TrackerSettings::Instance().m_EqUserPresets[n] = m_EQ;
 	}
-	CDialog::OnOK();
+	DialogBase::OnOK();
 }
 
 
@@ -1291,7 +1302,7 @@ void CEQSlider::Init(UINT nID, UINT n, CWnd *parent)
 
 BOOL CEQSlider::PreTranslateMessage(MSG *pMsg)
 {
-	if ((pMsg) && (pMsg->message == WM_RBUTTONDOWN) && (m_pParent))
+	if ((pMsg) && (pMsg->message == WM_RBUTTONUP) && (m_pParent))
 	{
 		m_x = LOWORD(pMsg->lParam);
 		m_y = HIWORD(pMsg->lParam);
@@ -1325,25 +1336,25 @@ BEGIN_MESSAGE_MAP(COptionsPlayer, CPropertyPage)
 #ifndef NO_EQ
 	// EQ
 	ON_WM_VSCROLL()
-	ON_COMMAND(IDC_CHECK3,	&COptionsPlayer::OnSettingsChanged)
-	ON_COMMAND(IDC_BUTTON1,	&COptionsPlayer::OnEqUser1)
-	ON_COMMAND(IDC_BUTTON2,	&COptionsPlayer::OnEqUser2)
-	ON_COMMAND(IDC_BUTTON3,	&COptionsPlayer::OnEqUser3)
-	ON_COMMAND(IDC_BUTTON4,	&COptionsPlayer::OnEqUser4)
-	ON_COMMAND(IDC_BUTTON5,	&COptionsPlayer::OnSavePreset)
-	ON_COMMAND_RANGE(ID_EQSLIDER_BASE, ID_EQSLIDER_BASE + MAX_EQ_BANDS,	&COptionsPlayer::OnSliderMenu)
-	ON_COMMAND_RANGE(ID_EQMENU_BASE, ID_EQMENU_BASE + EQ_MAX_FREQS,		&COptionsPlayer::OnSliderFreq)
+	ON_COMMAND(IDC_CHECK3,  &COptionsPlayer::OnSettingsChanged)
+	ON_COMMAND(IDC_BUTTON1, &COptionsPlayer::OnEqUser1)
+	ON_COMMAND(IDC_BUTTON2, &COptionsPlayer::OnEqUser2)
+	ON_COMMAND(IDC_BUTTON3, &COptionsPlayer::OnEqUser3)
+	ON_COMMAND(IDC_BUTTON4, &COptionsPlayer::OnEqUser4)
+	ON_COMMAND(IDC_BUTTON5, &COptionsPlayer::OnSavePreset)
+	ON_COMMAND_RANGE(ID_EQSLIDER_BASE, ID_EQSLIDER_BASE + MAX_EQ_BANDS, &COptionsPlayer::OnSliderMenu)
+	ON_COMMAND_RANGE(ID_EQMENU_BASE, ID_EQMENU_BASE + EQ_MAX_FREQS,     &COptionsPlayer::OnSliderFreq)
 #endif // !NO_EQ
 
 	// DSP
 	ON_WM_HSCROLL()
-	ON_CBN_SELCHANGE(IDC_COMBO2,	&COptionsPlayer::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK1,			&COptionsPlayer::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK2,			&COptionsPlayer::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK4,			&COptionsPlayer::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK5,			&COptionsPlayer::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK6,			&COptionsPlayer::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK7,			&COptionsPlayer::OnSettingsChanged)
+	ON_CBN_SELCHANGE(IDC_COMBO2, &COptionsPlayer::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK1,       &COptionsPlayer::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK2,       &COptionsPlayer::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK4,       &COptionsPlayer::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK5,       &COptionsPlayer::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK6,       &COptionsPlayer::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK7,       &COptionsPlayer::OnSettingsChanged)
 END_MESSAGE_MAP()
 
 
@@ -1359,6 +1370,14 @@ void COptionsPlayer::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_SLIDER6,		m_SbSurroundDelay);
 	DDX_Control(pDX, IDC_SLIDER4,		m_SbBitCrushBits);
 	//}}AFX_DATA_MAP
+}
+
+
+COptionsPlayer::COptionsPlayer() : CPropertyPage{IDD_OPTIONS_PLAYER}
+#ifndef NO_EQ
+	, m_EQPreset(TrackerSettings::Instance().m_EqSettings)
+#endif
+{
 }
 
 
@@ -1578,7 +1597,7 @@ void COptionsPlayer::UpdateEQ(bool bReset)
 
 void COptionsPlayer::OnVScroll(UINT nSBCode, UINT nPos, CScrollBar *pScrollBar)
 {
-	CDialog::OnVScroll(nSBCode, nPos, pScrollBar);
+	CPropertyPage::OnVScroll(nSBCode, nPos, pScrollBar);
 	for (UINT i=0; i<MAX_EQ_BANDS; i++)
 	{
 		int n = 32 - m_Sliders[i].GetPos();
@@ -1688,24 +1707,25 @@ void COptionsPlayer::OnSliderFreq(UINT nID)
 // CMidiSetupDlg
 
 BEGIN_MESSAGE_MAP(CMidiSetupDlg, CPropertyPage)
-	ON_CBN_SELCHANGE(IDC_COMBO1,			&CMidiSetupDlg::OnSettingsChanged)
-	ON_CBN_SELCHANGE(IDC_COMBO2,			&CMidiSetupDlg::OnSettingsChanged)
-	ON_CBN_SELCHANGE(IDC_COMBO3,			&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_BUTTON1,					&CMidiSetupDlg::OnRenameDevice)
-	ON_COMMAND(IDC_CHECK1,					&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK2,					&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK3,					&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK4,					&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_CHECK5,					&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_MIDI_TO_PLUGIN,			&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_MIDI_MACRO_CONTROL,		&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_MIDIVOL_TO_NOTEVOL,		&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_MIDIPLAYCONTROL,			&CMidiSetupDlg::OnSettingsChanged)
-	ON_COMMAND(IDC_MIDIPLAYPATTERNONMIDIIN,	&CMidiSetupDlg::OnSettingsChanged)
-	ON_EN_CHANGE(IDC_EDIT1,					&CMidiSetupDlg::OnSettingsChanged)
-	ON_EN_CHANGE(IDC_EDIT2,					&CMidiSetupDlg::OnSettingsChanged)
-	ON_EN_CHANGE(IDC_EDIT3,					&CMidiSetupDlg::OnSettingsChanged)
-	ON_EN_CHANGE(IDC_EDIT4,					&CMidiSetupDlg::OnSettingsChanged)
+	ON_CBN_SELCHANGE(IDC_COMBO1,            &CMidiSetupDlg::OnSettingsChanged)
+	ON_CBN_SELCHANGE(IDC_COMBO2,            &CMidiSetupDlg::OnSettingsChanged)
+	ON_CBN_SELCHANGE(IDC_COMBO3,            &CMidiSetupDlg::OnSettingsChanged)
+	ON_CBN_SELCHANGE(IDC_COMBO4,            &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_BUTTON1,                 &CMidiSetupDlg::OnRenameDevice)
+	ON_COMMAND(IDC_CHECK1,                  &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK2,                  &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK3,                  &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK4,                  &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_CHECK5,                  &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_MIDI_TO_PLUGIN,          &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_MIDI_MACRO_CONTROL,      &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_MIDIVOL_TO_NOTEVOL,      &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_MIDIPLAYCONTROL,         &CMidiSetupDlg::OnSettingsChanged)
+	ON_COMMAND(IDC_MIDIPLAYPATTERNONMIDIIN, &CMidiSetupDlg::OnSettingsChanged)
+	ON_EN_CHANGE(IDC_EDIT1,                 &CMidiSetupDlg::OnSettingsChanged)
+	ON_EN_CHANGE(IDC_EDIT2,                 &CMidiSetupDlg::OnSettingsChanged)
+	ON_EN_CHANGE(IDC_EDIT3,                 &CMidiSetupDlg::OnSettingsChanged)
+	ON_EN_CHANGE(IDC_EDIT4,                 &CMidiSetupDlg::OnSettingsChanged)
 END_MESSAGE_MAP()
 
 
@@ -1713,13 +1733,24 @@ void CMidiSetupDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CPropertyPage::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(COptionsSoundcard)
-	DDX_Control(pDX, IDC_SPIN1,		m_SpinSpd);
-	DDX_Control(pDX, IDC_SPIN2,		m_SpinPat);
-	DDX_Control(pDX, IDC_SPIN3,		m_SpinAmp);
-	DDX_Control(pDX, IDC_COMBO1,	m_InputDevice);
-	DDX_Control(pDX, IDC_COMBO2,	m_ATBehaviour);
-	DDX_Control(pDX, IDC_COMBO3,	m_Quantize);
+	DDX_Control(pDX, IDC_SPIN1,  m_SpinSpd);
+	DDX_Control(pDX, IDC_SPIN2,  m_SpinPat);
+	DDX_Control(pDX, IDC_SPIN3,  m_SpinAmp);
+	DDX_Control(pDX, IDC_COMBO1, m_InputDevice);
+	DDX_Control(pDX, IDC_COMBO2, m_ATBehaviour);
+	DDX_Control(pDX, IDC_COMBO3, m_Quantize);
+	DDX_Control(pDX, IDC_COMBO4, m_ContinueMode);
+	DDX_Control(pDX, IDC_EDIT3,  m_editAmp);
 	//}}AFX_DATA_MAP
+}
+
+
+CMidiSetupDlg::CMidiSetupDlg(FlagSet<MidiSetup> flags, UINT device)
+	: CPropertyPage{IDD_OPTIONS_MIDI}
+	, m_midiSetup{flags}
+	, m_nMidiDevice{device}
+{
+	m_editAmp.SetAccessibleSuffix(_T("%"));
 }
 
 
@@ -1727,19 +1758,24 @@ BOOL CMidiSetupDlg::OnInitDialog()
 {
 	CPropertyPage::OnInitDialog();
 	// Flags
-	if (m_dwMidiSetup & MIDISETUP_RECORDVELOCITY) CheckDlgButton(IDC_CHECK1, BST_CHECKED);
-	if (m_dwMidiSetup & MIDISETUP_RECORDNOTEOFF) CheckDlgButton(IDC_CHECK2, BST_CHECKED);
-	if (m_dwMidiSetup & MIDISETUP_ENABLE_RECORD_DEFAULT) CheckDlgButton(IDC_CHECK3, BST_CHECKED);
-	if (m_dwMidiSetup & MIDISETUP_TRANSPOSEKEYBOARD) CheckDlgButton(IDC_CHECK4, BST_CHECKED);
-	if (m_dwMidiSetup & MIDISETUP_MIDITOPLUG) CheckDlgButton(IDC_MIDI_TO_PLUGIN, BST_CHECKED);
-	if (m_dwMidiSetup & MIDISETUP_MIDIMACROCONTROL) CheckDlgButton(IDC_MIDI_MACRO_CONTROL, BST_CHECKED);
-	if (m_dwMidiSetup & MIDISETUP_MIDIVOL_TO_NOTEVOL) CheckDlgButton(IDC_MIDIVOL_TO_NOTEVOL, BST_CHECKED);
-	if (m_dwMidiSetup & MIDISETUP_RESPONDTOPLAYCONTROLMSGS) CheckDlgButton(IDC_MIDIPLAYCONTROL, BST_CHECKED);
-	if (m_dwMidiSetup & MIDISETUP_PLAYPATTERNONMIDIIN) CheckDlgButton(IDC_MIDIPLAYPATTERNONMIDIIN, BST_CHECKED);
-	if (m_dwMidiSetup & MIDISETUP_MIDIMACROPITCHBEND) CheckDlgButton(IDC_CHECK5, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::RecordVelocity]) CheckDlgButton(IDC_CHECK1, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::RecordNoteOff]) CheckDlgButton(IDC_CHECK2, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::EnableMidiInOnStartup]) CheckDlgButton(IDC_CHECK3, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::TransposeKeyboard]) CheckDlgButton(IDC_CHECK4, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::SendMidiToPlugins]) CheckDlgButton(IDC_MIDI_TO_PLUGIN, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::RecordCCsAsMacros]) CheckDlgButton(IDC_MIDI_MACRO_CONTROL, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::ApplyChannelVolumeToVelocity]) CheckDlgButton(IDC_MIDIVOL_TO_NOTEVOL, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::RespondToPlayControl]) CheckDlgButton(IDC_MIDIPLAYCONTROL, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::PlayPatternOnMidiNote]) CheckDlgButton(IDC_MIDIPLAYPATTERNONMIDIIN, BST_CHECKED);
+	if(m_midiSetup[MidiSetup::RecordPitchBend]) CheckDlgButton(IDC_CHECK5, BST_CHECKED);
 
 	// Midi In Device
 	RefreshDeviceList(m_nMidiDevice);
+
+	// Continue behaviour
+	m_ContinueMode.AddString(_T("From Cursor Position"));
+	m_ContinueMode.AddString(_T("From Start of Pattern"));
+	m_ContinueMode.SetCurSel(m_midiSetup[MidiSetup::PlayPatternFromStart] ? 1 : 0);
 
 	// Aftertouch behaviour
 	m_ATBehaviour.ResetContent();
@@ -1790,8 +1826,8 @@ BOOL CMidiSetupDlg::OnInitDialog()
 			m_Quantize.SetCurSel(item);
 		}
 	}
-	m_SpinSpd.SetRange(2, 16);
-	m_SpinPat.SetRange(1, MAX_PATTERN_ROWS);
+	m_SpinSpd.SetRange32(2, 16);
+	m_SpinPat.SetRange32(ModSpecs::mptm.patternRowsMin, ModSpecs::mptm.patternRowsMax);
 	return TRUE;
 }
 
@@ -1847,21 +1883,23 @@ void CMidiSetupDlg::OnRenameDevice()
 void CMidiSetupDlg::OnOK()
 {
 	CMainFrame *pMainFrm = CMainFrame::GetMainFrame();
-	m_dwMidiSetup = 0;
-	m_nMidiDevice = MIDI_MAPPER;
-	if (IsDlgButtonChecked(IDC_CHECK1)) m_dwMidiSetup |= MIDISETUP_RECORDVELOCITY;
-	if (IsDlgButtonChecked(IDC_CHECK2)) m_dwMidiSetup |= MIDISETUP_RECORDNOTEOFF;
-	if (IsDlgButtonChecked(IDC_CHECK3)) m_dwMidiSetup |= MIDISETUP_ENABLE_RECORD_DEFAULT;
-	if (IsDlgButtonChecked(IDC_CHECK4)) m_dwMidiSetup |= MIDISETUP_TRANSPOSEKEYBOARD;
-	if (IsDlgButtonChecked(IDC_MIDI_TO_PLUGIN)) m_dwMidiSetup |= MIDISETUP_MIDITOPLUG;
-	if (IsDlgButtonChecked(IDC_MIDI_MACRO_CONTROL)) m_dwMidiSetup |= MIDISETUP_MIDIMACROCONTROL;
-	if (IsDlgButtonChecked(IDC_MIDIVOL_TO_NOTEVOL)) m_dwMidiSetup |= MIDISETUP_MIDIVOL_TO_NOTEVOL;
-	if (IsDlgButtonChecked(IDC_MIDIPLAYCONTROL)) m_dwMidiSetup |= MIDISETUP_RESPONDTOPLAYCONTROLMSGS;
-	if (IsDlgButtonChecked(IDC_MIDIPLAYPATTERNONMIDIIN)) m_dwMidiSetup |= MIDISETUP_PLAYPATTERNONMIDIIN;
-	if (IsDlgButtonChecked(IDC_CHECK5)) m_dwMidiSetup |= MIDISETUP_MIDIMACROPITCHBEND;
+	m_midiSetup.set(MidiSetup::RecordVelocity, IsDlgButtonChecked(IDC_CHECK1) != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::RecordNoteOff, IsDlgButtonChecked(IDC_CHECK2) != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::EnableMidiInOnStartup, IsDlgButtonChecked(IDC_CHECK3)  != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::TransposeKeyboard, IsDlgButtonChecked(IDC_CHECK4) != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::SendMidiToPlugins, IsDlgButtonChecked(IDC_MIDI_TO_PLUGIN) != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::RecordCCsAsMacros, IsDlgButtonChecked(IDC_MIDI_MACRO_CONTROL) != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::ApplyChannelVolumeToVelocity, IsDlgButtonChecked(IDC_MIDIVOL_TO_NOTEVOL) != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::RespondToPlayControl, IsDlgButtonChecked(IDC_MIDIPLAYCONTROL) != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::PlayPatternOnMidiNote, IsDlgButtonChecked(IDC_MIDIPLAYPATTERNONMIDIIN) != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::RecordPitchBend, IsDlgButtonChecked(IDC_CHECK5) != BST_UNCHECKED);
+	m_midiSetup.set(MidiSetup::PlayPatternFromStart, m_ContinueMode.GetCurSel() == 1);
 
 	int n = m_InputDevice.GetCurSel();
-	if (n >= 0) m_nMidiDevice = static_cast<UINT>(m_InputDevice.GetItemData(n));
+	if(n >= 0)
+		m_nMidiDevice = static_cast<UINT>(m_InputDevice.GetItemData(n));
+	else
+		m_nMidiDevice = MIDI_MAPPER;
 
 	TrackerSettings::Instance().aftertouchBehaviour = static_cast<RecordAftertouchOptions>(m_ATBehaviour.GetItemData(m_ATBehaviour.GetCurSel()));
 
@@ -1871,14 +1909,18 @@ void CMidiSetupDlg::OnOK()
 	GetDlgItemText(IDC_EDIT4, cc);
 	TrackerSettings::Instance().midiIgnoreCCs = StringToIgnoredCCs(mpt::ToUnicode(cc));
 
-	TrackerSettings::Instance().midiImportTicks = static_cast<uint8>(Clamp(GetDlgItemInt(IDC_EDIT1), uint8(2), uint8(16)));
-	TrackerSettings::Instance().midiImportPatternLen = Clamp(GetDlgItemInt(IDC_EDIT2), ROWINDEX(1), MAX_PATTERN_ROWS);
+	int minVal, maxVal;
+	m_SpinSpd.GetRange32(minVal, maxVal);
+	TrackerSettings::Instance().midiImportTicks = static_cast<uint8>(Clamp(static_cast<int>(GetDlgItemInt(IDC_EDIT1)), minVal, maxVal));
+	m_SpinPat.GetRange32(minVal, maxVal);
+	TrackerSettings::Instance().midiImportPatternLen = static_cast<ROWINDEX>(Clamp(static_cast<int>(GetDlgItemInt(IDC_EDIT2)), minVal, maxVal));
 	if(m_Quantize.GetCurSel() != -1)
 	{
 		TrackerSettings::Instance().midiImportQuantize = static_cast<uint32>(m_Quantize.GetItemData(m_Quantize.GetCurSel()));
 	}
 
-	if (pMainFrm) pMainFrm->SetupMidi(m_dwMidiSetup, m_nMidiDevice);
+	if(pMainFrm)
+		pMainFrm->SetupMidi(m_midiSetup, m_nMidiDevice);
 	CPropertyPage::OnOK();
 }
 

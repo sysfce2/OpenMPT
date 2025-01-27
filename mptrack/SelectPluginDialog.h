@@ -69,12 +69,13 @@ protected:
 	VSTPluginLib *GetSelectedPlugin();
 	void SaveWindowPos() const;
 
-	void ReloadMissingPlugins(const VSTPluginLib *lib) const;
+	void ReloadMissingPlugins(const VSTPluginLib &lib) const;
 
 	void UpdatePluginsList(const VSTPluginLib *forceSelect = nullptr);
 
 	void DoDataExchange(CDataExchange *pDX) override;
 	BOOL OnInitDialog() override;
+	void OnDPIChanged() override;
 	void OnOK() override;
 	void OnCancel() override;
 	BOOL PreTranslateMessage(MSG *pMsg) override;

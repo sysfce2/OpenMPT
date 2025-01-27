@@ -24,8 +24,20 @@
    "../../installer/updatesigntool/*.h",
   }
 	excludes {
+		"../../src/mpt/main/**.cpp",
+		"../../src/mpt/main/**.hpp",
+		"../../src/openmpt/fileformat_base/**.cpp",
+		"../../src/openmpt/fileformat_base/**.hpp",
+		"../../src/openmpt/soundbase/**.cpp",
+		"../../src/openmpt/soundbase/**.hpp",
+		"../../src/openmpt/soundfile_data/**.cpp",
+		"../../src/openmpt/soundfile_data/**.hpp",
+		"../../src/openmpt/soundfile_write/**.cpp",
+		"../../src/openmpt/soundfile_write/**.hpp",
 		"../../src/openmpt/sounddevice/**.cpp",
 		"../../src/openmpt/sounddevice/**.hpp",
+		"../../src/openmpt/streamencoder/**.cpp",
+		"../../src/openmpt/streamencoder/**.hpp",
 	}
   defines { "MODPLUG_TRACKER", "MPT_BUILD_UPDATESIGNTOOL" }
 	if _OPTIONS["charset"] ~= "Unicode" then

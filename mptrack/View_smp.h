@@ -65,7 +65,6 @@ protected:
 	};
 
 	std::unique_ptr<OPLInstrDlg> m_oplEditor;
-	CImageList m_bmpEnvBar;
 	CRect m_rcClient;
 	CDC m_offScreenDC, m_waveformDC;
 	CBitmap m_offScreenBitmap, m_waveformBitmap;
@@ -158,6 +157,11 @@ protected:
 
 	SmpLength SnapToGrid(const SmpLength pos) const;
 
+	// Returns index of preview channel if exactly one one is being previewed, CHANNELINDEX_INVALID otherwise.
+	CHANNELINDEX GetPreviewChannel() const;
+	
+	void PlayOrSetCuePoint(size_t cue);
+
 public:
 	//{{AFX_VIRTUAL(CViewSample)
 	void OnDraw(CDC *) override;
@@ -174,6 +178,7 @@ public:
 protected:
 	//{{AFX_MSG(CViewSample)
 	afx_msg BOOL OnEraseBkgnd(CDC *) { return TRUE; }
+	// cppcheck-suppress duplInheritedMember
 	afx_msg void OnSetFocus(CWnd *pOldWnd);
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 	afx_msg void OnNcCalcSize(BOOL bCalcValidRects, NCCALCSIZE_PARAMS* lpncsp);
@@ -187,7 +192,7 @@ protected:
 	afx_msg void OnLButtonDblClk(UINT nFlags, CPoint point);
 	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
 	afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
-	afx_msg void OnRButtonDown(UINT, CPoint);
+	afx_msg void OnRButtonUp(UINT, CPoint);
 	afx_msg void OnMouseMove(UINT, CPoint);
 	afx_msg BOOL OnSetCursor(CWnd *pWnd, UINT nHitTest, UINT message);
 	afx_msg void OnEditSelectAll();

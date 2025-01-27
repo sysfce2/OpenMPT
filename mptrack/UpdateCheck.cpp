@@ -10,6 +10,7 @@
 
 #include "stdafx.h"
 #include "UpdateCheck.h"
+#include "DialogBase.h"
 #include "dlg_misc.h"
 #include "HTTP.h"
 #include "Mainfrm.h"
@@ -17,6 +18,7 @@
 #include "Mptrack.h"
 #include "ProgressDialog.h"
 #include "Reporting.h"
+#include "resource.h"
 #include "TrackerSettings.h"
 #include "WindowMessages.h"
 #include "../common/misc_util.h"
@@ -349,7 +351,7 @@ static UpdateInfo GetBestDownload(const Update::versions &versions)
 
 
 // Update notification dialog
-class UpdateDialog : public CDialog
+class UpdateDialog : public DialogBase
 {
 protected:
 	const CString m_releaseVersion;
@@ -360,7 +362,7 @@ protected:
 
 public:
 	UpdateDialog(const CString &releaseVersion, const CString &releaseDate, const CString &releaseURL, const CString &buttonText = _T("&Update"))
-		: CDialog(IDD_UPDATE)
+		: DialogBase(IDD_UPDATE)
 		, m_releaseVersion(releaseVersion)
 		, m_releaseDate(releaseDate)
 		, m_releaseURL(releaseURL)
@@ -369,7 +371,7 @@ public:
 
 	BOOL OnInitDialog() override
 	{
-		CDialog::OnInitDialog();
+		DialogBase::OnInitDialog();
 
 		SetDlgItemText(IDOK, m_buttonText);
 
@@ -392,7 +394,7 @@ public:
 	{
 		TrackerSettings::Instance().UpdateIgnoreVersion = IsDlgButtonChecked(IDC_CHECK1) != BST_UNCHECKED ? m_releaseVersion : CString();
 		m_boldFont.DeleteObject();
-		CDialog::OnDestroy();
+		DialogBase::OnDestroy();
 	}
 
 	void OnClickURL(NMHDR * /*pNMHDR*/, LRESULT * /*pResult*/)
@@ -403,7 +405,7 @@ public:
 	DECLARE_MESSAGE_MAP()
 };
 
-BEGIN_MESSAGE_MAP(UpdateDialog, CDialog)
+BEGIN_MESSAGE_MAP(UpdateDialog, DialogBase)
 	ON_NOTIFY(NM_CLICK, IDC_SYSLINK1, &UpdateDialog::OnClickURL)
 	ON_WM_DESTROY()
 END_MESSAGE_MAP()
@@ -459,6 +461,24 @@ bool CUpdateCheck::IsSuitableUpdateMoment()
 {
 	const auto documents = theApp.GetOpenDocuments();
 	return std::all_of(documents.begin(), documents.end(), [](auto doc) { return !doc->IsModified(); });
+}
+
+
+void CUpdateCheck::WaitForUpdateCheckFinished()
+{
+	while(GetNumCurrentRunningInstances() > 0)
+	{
+		MSG msg;
+		while(::PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		{
+			::TranslateMessage(&msg);
+			::DispatchMessage(&msg);
+		}
+		if(GetNumCurrentRunningInstances() > 0)
+		{
+			Sleep(1);
+		}
+	}
 }
 
 
@@ -906,7 +926,7 @@ const CUpdateCheck::Error &CUpdateCheck::MessageAsError(WPARAM /* wparam */ , LP
 
 
 
-static const char * const updateScript = R"vbs(
+static const char updateScript[] = R"vbs(
 
 Wscript.Echo
 Wscript.Echo "OpenMPT portable Update"
@@ -1521,7 +1541,7 @@ CUpdateSetupDlg::CUpdateSetupDlg()
 
 void CUpdateSetupDlg::DoDataExchange(CDataExchange *pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	CPropertyPage::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_COMBO_UPDATEFREQUENCY, m_CbnUpdateFrequency);
 }
 
@@ -1624,6 +1644,8 @@ void CUpdateSetupDlg::OnShowStatisticsData(NMHDR * /*pNMHDR*/, LRESULT * /*pResu
 	statistics += UL_("\n");
 
 	{
+		statistics += U_("User-Agent: ") + Version::Current().GetOpenMPTVersionString() + UL_("\n");
+		statistics += UL_("\n");
 		statistics += U_("GET ") + settings.apiURL + MPT_UFORMAT("update/{}")(GetChannelName(static_cast<UpdateChannel>(settings.channel))) + UL_("\n");
 		statistics += UL_("\n");
 		std::vector<mpt::ustring> keyAnchors = TrackerSettings::Instance().UpdateSigningKeysRootAnchors;
@@ -1637,6 +1659,8 @@ void CUpdateSetupDlg::OnShowStatisticsData(NMHDR * /*pNMHDR*/, LRESULT * /*pResu
 	if(settings.sendStatistics)
 	{
 		statistics += U_("Statistics:") + UL_("\n");
+		statistics += UL_("\n");
+		statistics += U_("User-Agent: ") + Version::Current().GetOpenMPTVersionString() + UL_("\n");
 		statistics += UL_("\n");
 		if(settings.statisticsUUID.IsValid())
 		{

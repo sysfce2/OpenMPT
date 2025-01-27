@@ -32,8 +32,10 @@
    "../../src/mpt/format/*.hpp",
    "../../src/mpt/io/*.hpp",
    "../../src/mpt/io_file/*.hpp",
+   "../../src/mpt/main/*.hpp",
    "../../src/mpt/parse/*.hpp",
    "../../src/mpt/path/*.hpp",
+   "../../src/mpt/random/*.hpp",
    "../../src/mpt/string/*.hpp",
    "../../src/mpt/string_transcode/*.hpp",
    "../../openmpt123/*.cpp",
@@ -70,7 +72,9 @@
   }
   
   filter {}
-  filter { "action:vs*" }
-		linkoptions { "wsetargv.obj" }
-  filter {}
+	if _OPTIONS["windows-family"] ~= "uwp" then
+		filter { "action:vs*" }
+			linkoptions { "wsetargv.obj" }
+		filter {}
+	end
   prebuildcommands { "..\\..\\build\\svn_version\\update_svn_version_vs_premake.cmd $(IntDir)" }

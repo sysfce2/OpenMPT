@@ -17,12 +17,11 @@
 #include "Reporting.h"
 #include "resource.h"
 #include "TrackerSettings.h"
+#include "../common/GzipWriter.h"
 #include "../soundlib/OPL.h"
 #include "../soundlib/Tagging.h"
 #include "mpt/io_file/outputfile.hpp"
 #include "mpt/string/utility.hpp"
-
-#include <zlib/zlib.h>
 
 OPENMPT_NAMESPACE_BEGIN
 
@@ -87,7 +86,7 @@ class OPLCapture final : public OPL::IRegisterLogger
 {
 	struct RegisterDump
 	{
-		CSoundFile::samplecount_t sampleOffset;
+		samplecount_t sampleOffset;
 		uint8 regLo;
 		uint8 regHi;
 		uint8 value;
@@ -125,7 +124,7 @@ public:
 
 		mpt::IO::Write(f, header);
 
-		CSoundFile::samplecount_t prevOffset = 0, prevOffsetMs = 0;
+		samplecount_t prevOffset = 0, prevOffsetMs = 0;
 		bool prevHigh = false;
 		for(const auto &reg : m_registerDump)
 		{
@@ -178,34 +177,16 @@ public:
 		mpt::IO::Write(f, header);
 	}
 
-	void WriteVGZ(std::ostream &f, const CSoundFile::samplecount_t loopStart, const FileTags &fileTags, const mpt::ustring &filename) const
+	void WriteVGZ(std::ostream &f, const samplecount_t loopStart, const FileTags &fileTags, const mpt::ustring &filename) const
 	{
 		std::ostringstream outStream;
 		WriteVGM(outStream, loopStart, fileTags);
 
 		std::string outData = std::move(outStream).str();
-		z_stream strm{};
-		strm.avail_in = static_cast<uInt>(outData.size());
-		strm.next_in = reinterpret_cast<Bytef *>(outData.data());
-		if(deflateInit2(&strm, Z_BEST_COMPRESSION, Z_DEFLATED, 15 | 16, 9, Z_DEFAULT_STRATEGY) != Z_OK)
-			throw std::runtime_error{"zlib init failed"};
-		gz_header gzHeader{};
-		gzHeader.time = static_cast<uLong>(time(nullptr));
-		std::string filenameISO = mpt::ToCharset(mpt::Charset::ISO8859_1, filename);
-		gzHeader.name = reinterpret_cast<Bytef *>(filenameISO.data());
-		deflateSetHeader(&strm, &gzHeader);
-		do
-		{
-			std::array<Bytef, mpt::IO::BUFFERSIZE_TINY> buffer;
-			strm.avail_out = static_cast<uInt>(buffer.size());
-			strm.next_out = buffer.data();
-			deflate(&strm, Z_FINISH);
-			mpt::IO::WritePartial(f, buffer, buffer.size() - strm.avail_out);
-		} while(strm.avail_out == 0);
-		deflateEnd(&strm);
+		WriteGzip(f, outData, filename);
 	}
 	
-	void WriteVGM(std::ostream &f, const CSoundFile::samplecount_t loopStart, const FileTags &fileTags) const
+	void WriteVGM(std::ostream &f, const samplecount_t loopStart, const FileTags &fileTags) const
 	{
 		VGMHeader header{};
 		memcpy(header.magic, VGMHeader::VgmMagic, 4);
@@ -219,7 +200,7 @@ public:
 		mpt::IO::Write(f, header);
 
 		bool wroteLoopStart = (header.loopNumSamples == 0);
-		CSoundFile::samplecount_t prevOffset = 0;
+		samplecount_t prevOffset = 0;
 		for(const auto &reg : m_registerDump)
 		{
 			if(reg.sampleOffset >= loopStart && !wroteLoopStart)
@@ -303,7 +284,7 @@ private:
 		return bytesWritten;
 	}
 
-	static void WriteVGMDelay(std::ostream &f, CSoundFile::samplecount_t delay)
+	static void WriteVGMDelay(std::ostream &f, samplecount_t delay)
 	{
 		while(delay)
 		{
@@ -336,7 +317,7 @@ private:
 		mpt::IO::Write(f, s16le);
 	}
 
-	void Port(CHANNELINDEX, uint16 reg, uint8 value) override
+	void Port(CHANNELINDEX, OPL::Register reg, OPL::Value value) override
 	{
 		if(const auto prevValue = m_prevRegisters.find(reg); prevValue != m_prevRegisters.end() && prevValue->second == value)
 			return;
@@ -344,8 +325,10 @@ private:
 		m_prevRegisters[reg] = value;
 	}
 
+	void MoveChannel(CHANNELINDEX, CHANNELINDEX) override {}
+
 	std::vector<RegisterDump> m_registerDump;
-	std::map<uint16, uint8> m_prevRegisters, m_registerDumpAtLoopStart;
+	std::map<OPL::Register, OPL::Value> m_prevRegisters, m_registerDumpAtLoopStart;
 	CSoundFile &m_sndFile;
 };
 
@@ -441,7 +424,7 @@ public:
 		if(m_conversionRunning)
 			CProgressDialog::OnCancel();
 		else
-			CDialog::OnCancel();
+			DialogBase::OnCancel();
 	}
 
 	void Run() override {}
@@ -471,17 +454,7 @@ public:
 		const auto subsongText = GetDlgItem(IDC_SUBSONG);
 		if(subsongText == nullptr || m_selectedSong >= m_subSongs.size())
 			return;
-		const auto &song = m_subSongs[m_selectedSong];
-		const auto sequenceName = m_sndFile.Order(song.sequence).GetName();
-		const auto startPattern = m_sndFile.Order(song.sequence).PatternAt(song.startOrder);
-		const auto orderName = startPattern ? startPattern->GetName() : std::string{};
-		subsongText->SetWindowText(MPT_TFORMAT("Sequence {}{}\nOrder {} to {}{}")(
-									   song.sequence + 1,
-									   sequenceName.empty() ? mpt::tstring{} : MPT_TFORMAT(" ({})")(sequenceName),
-									   song.startOrder,
-									   song.endOrder,
-									   orderName.empty() ? mpt::tstring{} : MPT_TFORMAT(" ({})")(mpt::ToWin(m_sndFile.GetCharsetInternal(), orderName)))
-									   .c_str());
+		subsongText->SetWindowText(m_modDoc.FormatSubsongName(m_subSongs[m_selectedSong]).c_str());
 	}
 
 	void DoConversion(const mpt::PathString &fileName)
@@ -489,6 +462,7 @@ public:
 		const int controls[] = {IDC_RADIO1, IDC_RADIO2, IDC_RADIO3, IDC_RADIO4, IDC_RADIO5, IDC_EDIT1, IDC_EDIT2, IDC_EDIT3, IDC_EDIT4, IDC_EDIT5, IDC_SPIN1, IDOK};
 		for(int control : controls)
 			GetDlgItem(control)->EnableWindow(FALSE);
+		GetDlgItem(IDCANCEL)->SetFocus();
 
 		BypassInputHandler bih;
 		CMainFrame::GetMainFrame()->StopMod(&m_modDoc);
@@ -528,20 +502,23 @@ public:
 
 		const auto songIndexFmt = mpt::format_simple_spec<mpt::ustring>{}.Dec().FillNul().Width(1 + static_cast<int>(std::log10(m_subSongs.size())));
 
-		size_t totalSamples = 0;
+		uint64 totalSamples = 0;
 		for(size_t i = 0; i < m_subSongs.size() && !m_abort; i++)
 		{
 			const auto &song = m_subSongs[i];
 
+			m_selectedSong = i;
+			UpdateSubsongName();
+
 			m_sndFile.ResetPlayPos();
 			m_sndFile.GetLength(eAdjust, GetLengthTarget(song.startOrder, song.startRow).StartPos(song.sequence, 0, 0));
-			m_sndFile.m_SongFlags.reset(SONG_PLAY_FLAGS);
+			m_sndFile.m_PlayState.m_flags.reset();
 
 			m_oplLogger.Reset();
 			m_sndFile.m_opl = std::make_unique<OPL>(m_oplLogger);
 
 			auto prevTime = timeGetTime();
-			CSoundFile::samplecount_t loopStart = std::numeric_limits<CSoundFile::samplecount_t>::max(), subsongSamples = 0;
+			samplecount_t loopStart = std::numeric_limits<samplecount_t>::max(), subsongSamples = 0;
 			while(!m_abort)
 			{
 				auto count = m_sndFile.ReadOneTick();
@@ -571,7 +548,7 @@ public:
 				}
 			}
 
-			if(m_sndFile.m_SongFlags[SONG_BREAKTOROW] && loopStart == Util::MaxValueOfType(loopStart) && song.loopStartOrder == song.startOrder && song.loopStartRow == song.startRow)
+			if(m_sndFile.m_PlayState.m_flags[SONG_BREAKTOROW] && loopStart == Util::MaxValueOfType(loopStart) && song.loopStartOrder == song.startOrder && song.loopStartRow == song.startRow)
 				loopStart = 0;
 
 			mpt::PathString currentFileName = fileName;
@@ -612,7 +589,7 @@ public:
 OPLExportDlg::ExportFormat OPLExportDlg::s_format = OPLExportDlg::ExportFormat::VGZ;
 
 
-BEGIN_MESSAGE_MAP(OPLExportDlg, CDialog)
+BEGIN_MESSAGE_MAP(OPLExportDlg, CProgressDialog)
 	//{{AFX_MSG_MAP(OPLExportDlg)
 	ON_COMMAND(IDC_RADIO1,  &OPLExportDlg::OnFormatChanged)
 	ON_COMMAND(IDC_RADIO2,  &OPLExportDlg::OnFormatChanged)

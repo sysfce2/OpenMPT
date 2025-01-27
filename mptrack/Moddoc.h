@@ -151,8 +151,7 @@ protected:
 	std::array<std::bitset<128>, 16> m_midiPlayingNotes;
 	std::bitset<16> m_midiSustainActive;
 
-	std::bitset<MAX_BASECHANNELS> m_bsMultiRecordMask;
-	std::bitset<MAX_BASECHANNELS> m_bsMultiSplitRecordMask;
+	std::vector<RecordGroup> m_multiRecordGroup;
 
 protected: // create from serialization only
 	CModDoc();
@@ -177,7 +176,7 @@ public:
 	void PostMessageToAllViews(UINT uMsg, WPARAM wParam = 0, LPARAM lParam = 0);
 	void SendNotifyMessageToAllViews(UINT uMsg, WPARAM wParam = 0, LPARAM lParam = 0);
 	void SendMessageToActiveView(UINT uMsg, WPARAM wParam = 0, LPARAM lParam = 0);
-	MODTYPE GetModType() const { return m_SndFile.m_nType; }
+	MODTYPE GetModType() const noexcept { return m_SndFile.GetType(); }
 	INSTRUMENTINDEX GetNumInstruments() const { return m_SndFile.m_nInstruments; }
 	SAMPLEINDEX GetNumSamples() const { return m_SndFile.m_nSamples; }
 
@@ -283,9 +282,9 @@ public:
 	RecordGroup GetChannelRecordGroup(CHANNELINDEX channel) const;
 	void SetChannelRecordGroup(CHANNELINDEX channel, RecordGroup recordGroup);
 	void ToggleChannelRecordGroup(CHANNELINDEX channel, RecordGroup recordGroup);
-	void ReinitRecordState(bool unselect = true);
+	void ReinitRecordState();
 
-	CHANNELINDEX GetNumChannels() const { return m_SndFile.m_nChannels; }
+	CHANNELINDEX GetNumChannels() const noexcept { return m_SndFile.GetNumChannels(); }
 	UINT GetPatternSize(PATTERNINDEX nPat) const;
 	bool IsChildSample(INSTRUMENTINDEX nIns, SAMPLEINDEX nSmp) const;
 	INSTRUMENTINDEX FindSampleParent(SAMPLEINDEX sample) const;
@@ -337,6 +336,8 @@ public:
 	// [in] bIncludeIndex: True to include instrument index in front of the instrument name, false otherwise.
 	CString GetPatternViewInstrumentName(INSTRUMENTINDEX nInstr, bool bEmptyInsteadOfNoName = false, bool bIncludeIndex = true) const;
 
+	mpt::tstring FormatSubsongName(const SubSong &song);
+
 	// Check if a given channel contains data.
 	bool IsChannelUnused(CHANNELINDEX nChn) const;
 	// Check whether a sample is used.
@@ -346,7 +347,9 @@ public:
 	// Check whether an instrument is used (only for instrument mode).
 	bool IsInstrumentUsed(INSTRUMENTINDEX instr, bool searchInMutedChannels = true) const;
 
-// protected members
+	void InitChannel(CHANNELINDEX chn);
+	
+	// protected members
 protected:
 
 	void InitializeMod();
@@ -356,7 +359,7 @@ protected:
 // Overrides
 	// ClassWizard generated virtual function overrides
 	//{{AFX_VIRTUAL(CModDoc)
-	public:
+public:
 	BOOL OnNewDocument() override;
 	BOOL OnOpenDocument(LPCTSTR lpszPathName) override;
 	BOOL OnSaveDocument(LPCTSTR lpszPathName) override
@@ -366,6 +369,7 @@ protected:
 	void OnCloseDocument() override;
 	void SafeFileClose();
 	bool OnSaveDocument(const mpt::PathString &filename, const bool setPath = true);
+	bool SaveFile(const mpt::PathString &filename, bool allowRelativeSamplePaths);
 
 #if MPT_COMPILER_CLANG
 #pragma clang diagnostic push

@@ -30,16 +30,17 @@ OPENMPT_NAMESPACE_BEGIN
 class CSoundFile;
 struct SNDMIXPLUGIN;
 struct VSTPluginLib;
+enum class PluginCategory : uint8;
 
 
 class CVstPlugin final : public IMidiPlugin
 {
 protected:
 
-	bool m_maskCrashes;
-	HMODULE m_hLibrary;
+	const bool m_maskCrashes;
+	HMODULE m_hLibrary = nullptr;
 	Vst::AEffect &m_Effect;
-	Vst::ProcessProc m_pProcessFP = nullptr; // Function pointer to AEffect processReplacing if supported, else process.
+	Vst::ProcessProc m_pProcessFP = nullptr;  // Function pointer to AEffect processReplacing if supported, else process.
 
 	double lastBarStartPos = -1.0;
 	uint32 m_nSampleRate;
@@ -50,13 +51,13 @@ protected:
 	bool m_needIdle : 1;
 	bool m_positionChanged : 1;
 
-	VstEventQueue vstEvents;	// MIDI events that should be sent to the plugin
+	VstEventQueue vstEvents;  // MIDI events that should be sent to the plugin
 
-	Vst::VstTimeInfo timeInfo;
+	Vst::VstTimeInfo timeInfo{};
 
 public:
 
-	const bool isBridged : 1;		// True if our built-in plugin bridge is being used.
+	const bool isBridged : 1;  // True if our built-in plugin bridge is being used.
 
 private:
 
@@ -84,9 +85,28 @@ public:
 		DetectRequiredBridgeMode,
 	};
 
-	static Vst::AEffect *LoadPlugin(bool maskCrashes, VSTPluginLib &plugin, HMODULE &library, BridgeMode bridgeMode);
+	struct LoadResult
+	{
+		struct ShellPlugin
+		{
+			std::string name;
+			uint32 shellPluginID = 0;
+		};
+
+		Vst::AEffect *effect = nullptr;
+		Vst::MainProc mainProc = nullptr;
+		HMODULE library = nullptr;
+		int32 magic = 0, uniqueID = 0;
+		std::vector<ShellPlugin> shellPlugins;
+	};
+
+	static LoadResult LoadPlugin(bool maskCrashes, VSTPluginLib &plugin, BridgeMode bridgeMode, unsigned long &exception);
+	static bool SelectShellPlugin(bool maskCrashes, LoadResult &loadResult, const VSTPluginLib &plugin);
+	static void GetPluginMetadata(bool maskCrashes, LoadResult &loadResult, VSTPluginLib &plugin);
 
 protected:
+	static std::pair<Vst::AEffect *, Vst::MainProc> LoadPluginInternal(bool maskCrashes, VSTPluginLib &plugin, HMODULE &library, BridgeMode bridgeMode);
+
 	void Initialize();
 
 public:
@@ -99,8 +119,6 @@ public:
 	bool ProgramsAreChunks() const override { return (m_Effect.flags & Vst::effFlagsProgramChunks) != 0; }
 	ChunkData GetChunk(bool isBank) override;
 	void SetChunk(const ChunkData &chunk, bool isBank) override;
-	// If true, the plugin produces an output even if silence is being fed into it.
-	//bool ShouldProcessSilence() { return IsInstrument() || ((m_Effect.flags & effFlagsNoSoundInStop) == 0 && Dispatch(effGetTailSize, 0, 0, nullptr, 0.0f) != 1) override; }
 	// Old JUCE versions set effFlagsNoSoundInStop even when the shouldn't (see various ValhallaDSP reverb plugins). While the user cannot change the plugin bypass setting manually yet, play safe with VST plugins and do not optimize.
 	bool ShouldProcessSilence() override { return true; }
 
@@ -110,7 +128,7 @@ public:
 
 	PlugParamIndex GetNumParameters() const override;
 	PlugParamValue GetParameter(PlugParamIndex nIndex) override;
-	void SetParameter(PlugParamIndex nIndex, PlugParamValue fValue) override;
+	void SetParameter(PlugParamIndex nIndex, PlugParamValue fValue, PlayState * = nullptr, CHANNELINDEX = CHANNELINDEX_INVALID) override;
 
 	CString GetCurrentProgramName() override;
 	void SetCurrentProgramName(const CString &name) override;
@@ -120,7 +138,7 @@ public:
 	CString GetParamLabel(PlugParamIndex param) override { return GetParamPropertyString(param, Vst::effGetParamLabel); };
 	CString GetParamDisplay(PlugParamIndex param) override { return GetParamPropertyString(param, Vst::effGetParamDisplay); };
 
-	static intptr_t DispatchSEH(bool maskCrashes, Vst::AEffect *effect, Vst::VstOpcodeToPlugin opCode, int32 index, intptr_t value, void *ptr, float opt, unsigned long &exception);
+	static intptr_t DispatchSEH(bool maskCrashes, Vst::AEffect &effect, Vst::VstOpcodeToPlugin opCode, int32 index, intptr_t value, void *ptr, float opt, unsigned long &exception);
 	intptr_t Dispatch(Vst::VstOpcodeToPlugin opCode, int32 index, intptr_t value, void *ptr, float opt);
 
 	bool HasEditor() const override { return (m_Effect.flags & Vst::effFlagsHasEditor) != 0; }
@@ -129,6 +147,7 @@ public:
 
 	void Bypass(bool bypass = true) override;
 
+	static bool IsInstrument(Vst::AEffect &effect);
 	bool IsInstrument() const override;
 	bool CanRecieveMidiEvents() override;
 
@@ -139,14 +158,14 @@ public:
 	void SaveAllParameters() override;
 	void RestoreAllParameters(int32 program) override;
 	void Process(float *pOutL, float *pOutR, uint32 numFrames) override;
-	bool MidiSend(uint32 dwMidiCode) override;
-	bool MidiSysexSend(mpt::const_byte_span sysex) override;
+	using IMixPlugin::MidiSend;
+	bool MidiSend(mpt::const_byte_span midiData) override;
 	void HardAllNotesOff() override;
 	void NotifySongPlaying(bool playing) override;
 
 	void Resume() override;
 	void Suspend() override;
-	void PositionChanged() override { m_positionChanged = true; }
+	void PositionChanged() override;
 
 	// Check whether a VST parameter can be automated
 	bool CanAutomateParameter(PlugParamIndex index);

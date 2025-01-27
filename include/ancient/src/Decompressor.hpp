@@ -18,7 +18,7 @@ namespace ancient::internal
 class Decompressor
 {
 protected:
-	Decompressor() noexcept;
+	Decompressor() noexcept=default;
 
 public:
 
@@ -30,7 +30,7 @@ public:
 	Decompressor(const Decompressor&)=delete;
 	Decompressor& operator=(const Decompressor&)=delete;
 
-	virtual ~Decompressor();
+	virtual ~Decompressor() noexcept=default;
 
 	// Name returned is human readable long name
 	virtual const std::string &getName() const noexcept=0;
@@ -74,8 +74,8 @@ public:
 	static std::shared_ptr<Decompressor> create(const Buffer &packedData,bool exactSizeKnown,bool verify);
 
 	// Detect signature whether it matches to any known compressor
-	// This does not guarantee the data is decompressable though, only signature is read
-	static bool detect(const Buffer &packedData) noexcept;
+	// This does not guarantee the data is decompressable though, only signature(s) is read
+	static bool detect(const Buffer &packedData,bool exactSizeKnown) noexcept;
 
 protected:
 	virtual void decompressImpl(Buffer &rawData,bool verify)=0;

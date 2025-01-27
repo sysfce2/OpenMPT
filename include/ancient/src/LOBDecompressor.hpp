@@ -12,16 +12,15 @@ class LOBDecompressor : public Decompressor
 {
 public:
 	LOBDecompressor(const Buffer &packedData,bool verify);
+	~LOBDecompressor() noexcept=default;
 
-	virtual ~LOBDecompressor();
+	const std::string &getName() const noexcept final;
+	size_t getPackedSize() const noexcept final;
+	size_t getRawSize() const noexcept final;
 
-	virtual const std::string &getName() const noexcept override final;
-	virtual size_t getPackedSize() const noexcept override final;
-	virtual size_t getRawSize() const noexcept override final;
+	void decompressImpl(Buffer &rawData,bool verify) final;
 
-	virtual void decompressImpl(Buffer &rawData,bool verify) override final;
-
-	static bool detectHeader(uint32_t hdr) noexcept;
+	static bool detectHeader(uint32_t hdr,uint32_t footer) noexcept;
 	static std::shared_ptr<Decompressor> create(const Buffer &packedData,bool exactSizeKnown,bool verify);
 
 private:
@@ -29,8 +28,8 @@ private:
 
 	const Buffer	&_packedData;
 
-	uint32_t	_rawSize=0;
-	uint32_t	_packedSize=0;
+	uint32_t	_rawSize{0};
+	uint32_t	_packedSize{0};
 
 	uint32_t	_methodCount;
 };

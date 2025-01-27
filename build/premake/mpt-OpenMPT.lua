@@ -69,10 +69,8 @@ end
 	defines { "MPT_WITH_RTAUDIO" }
 	mpt_use_rtmidi()
 	defines { "MPT_WITH_RTMIDI" }
-	mpt_use_smbpitchshift()
-	defines { "MPT_WITH_SMBPITCHSHIFT" }
-	mpt_use_soundtouch()
-	defines { "MPT_WITH_SOUNDTOUCH" }
+	mpt_use_signalsmith_stretch()
+	defines { "MPT_WITH_SIGNALSMITH_STRETCH" }
 	mpt_use_unrar()
 	defines { "MPT_WITH_UNRAR" }
 	mpt_use_vorbis()
@@ -120,6 +118,10 @@ end
    "../../pluginBridge/BridgeWrapper.cpp",
    "../../pluginBridge/BridgeWrapper.h",
   }
+	excludes {
+		"../../src/mpt/main/**.cpp",
+		"../../src/mpt/main/**.hpp",
+	}
   files {
    "../../mptrack/mptrack.rc",
    "../../mptrack/res/*.*", -- resource data files

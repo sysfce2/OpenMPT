@@ -241,8 +241,44 @@
 
 
 
+#if MPT_LIBC_MINGW
+// MinGW32 runtime headers require __off64_t when including some C and/or C++ stdlib headers.
+// This is declared in <sys/types.h>, which howeger is not included in some header chains.
+#if (defined(__MINGW32__) && !defined(__MINGW64__))
+#define MPT_LIBC_QUIRK_REQUIRES_SYS_TYPES_H
+#endif
+#endif
+
+
+
 #if MPT_LIBC_DJGPP
 #define MPT_LIBC_QUIRK_NO_FENV
+#endif
+
+
+
+#if MPT_OS_CYGWIN
+#define MPT_LIBCXX_QUIRK_BROKEN_USER_LOCALE
+#endif
+
+
+
+// #define MPT_LIBCXX_QUIRK_BROKEN_ACTIVE_LOCALE
+
+
+
+#if MPT_CXX_AT_LEAST(20)
+#if MPT_LIBCXX_GNU_BEFORE(10) || MPT_LIBCXX_LLVM_BEFORE(13000) || (MPT_LIBCXX_MS && MPT_MSVC_BEFORE(2022, 0)) || (MPT_LIBCXX_MS && !MPT_COMPILER_MSVC)
+#define MPT_LIBCXX_QUIRK_NO_CXX20_CONSTEXPR_ALGORITHM
+#endif
+#endif
+
+
+
+#if MPT_CXX_AT_LEAST(20)
+#if MPT_LIBCXX_GNU_BEFORE(12) || MPT_LIBCXX_LLVM_BEFORE(15000) || (MPT_LIBCXX_MS && MPT_MSVC_BEFORE(2022, 0)) || (MPT_LIBCXX_MS && !MPT_COMPILER_MSVC)
+#define MPT_LIBCXX_QUIRK_NO_CXX20_CONSTEXPR_CONTAINER
+#endif
 #endif
 
 
@@ -280,7 +316,9 @@
 #define MPT_LIBCXX_QUIRK_CHRONO_TZ_MEMLEAK
 #endif
 #endif
-
+#if MPT_LIBCXX_GNU_BEFORE(13)
+#define MPT_LIBCXX_QUIRK_CHRONO_DATE_NO_ZONED_TIME
+#endif
 #if MPT_MSVC_AT_LEAST(2022, 6) && MPT_MSVC_BEFORE(2022, 7)
 // std::chrono triggers ICE in VS2022 17.6.0, see <https://developercommunity.visualstudio.com/t/INTERNAL-COMPILER-ERROR-when-compiling-s/10366948>.
 #define MPT_LIBCXX_QUIRK_CHRONO_DATE_BROKEN_ZONED_TIME
@@ -297,8 +335,12 @@
 #elif MPT_OS_MACOSX_OR_IOS
 #if defined(TARGET_OS_OSX)
 #if TARGET_OS_OSX
+#if !defined(MAC_OS_X_VERSION_10_15)
+#define MPT_LIBCXX_QUIRK_NO_TO_CHARS_INT
+#else
 #if (MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_15)
 #define MPT_LIBCXX_QUIRK_NO_TO_CHARS_INT
+#endif
 #endif
 #endif
 #endif
@@ -314,6 +356,34 @@
 
 #if MPT_OS_ANDROID && MPT_LIBCXX_LLVM_BEFORE(7000)
 #define MPT_LIBCXX_QUIRK_NO_HAS_UNIQUE_OBJECT_REPRESENTATIONS
+#endif
+
+
+
+#if MPT_OS_ANDROID && MPT_LIBCXX_LLVM_BEFORE(17000)
+#define MPT_LIBCXX_QUIRK_NO_NUMBERS
+#endif
+
+
+
+#if MPT_LIBCXX_GNU_BEFORE(13) || (MPT_LIBCXX_MS && !MPT_MSVC_AT_LEAST(2022, 7)) || MPT_LIBCXX_LLVM
+#define MPT_LIBCXX_QUIRK_NO_STDFLOAT
+#endif
+
+
+
+#if MPT_OS_MACOSX_OR_IOS
+#if defined(TARGET_OS_OSX)
+#if TARGET_OS_OSX
+#if !defined(MAC_OS_X_VERSION_10_14)
+#define MPT_LIBCXX_QUIRK_NO_OPTIONAL_VALUE
+#else
+#if (MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_14)
+#define MPT_LIBCXX_QUIRK_NO_OPTIONAL_VALUE
+#endif
+#endif
+#endif
+#endif
 #endif
 
 

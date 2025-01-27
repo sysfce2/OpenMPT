@@ -10,18 +10,24 @@
 
 #include "stdafx.h"
 #include "dlg_misc.h"
-#include "ChannelManagerDlg.h"
 #include "Childfrm.h"
 #include "Dlsbank.h"
+#include "HighDPISupport.h"
 #include "Moddoc.h"
 #include "Mptrack.h"
 #include "Reporting.h"
+#include "resource.h"
 #include "TempoSwingDialog.h"
+#include "TrackerSettings.h"
 #include "WindowMessages.h"
 #include "../common/mptStringBuffer.h"
 #include "../common/version.h"
 #include "../soundlib/mod_specifications.h"
 #include "../soundlib/plugins/PlugInterface.h"
+
+#if MPT_WINNT_AT_LEAST(MPT_WIN_VISTA) && defined(UNICODE)
+#include <afxtaskdialog.h>
+#endif
 
 
 OPENMPT_NAMESPACE_BEGIN
@@ -31,7 +37,7 @@ OPENMPT_NAMESPACE_BEGIN
 // CModTypeDlg
 
 
-BEGIN_MESSAGE_MAP(CModTypeDlg, CDialog)
+BEGIN_MESSAGE_MAP(CModTypeDlg, DialogBase)
 	//{{AFX_MSG_MAP(CModTypeDlg)
 	ON_CBN_SELCHANGE(IDC_COMBO1,			&CModTypeDlg::UpdateDialog)
 	ON_CBN_SELCHANGE(IDC_COMBO_TEMPOMODE,	&CModTypeDlg::OnTempoModeChanged)
@@ -39,9 +45,6 @@ BEGIN_MESSAGE_MAP(CModTypeDlg, CDialog)
 	ON_COMMAND(IDC_BUTTON1,					&CModTypeDlg::OnTempoSwing)
 	ON_COMMAND(IDC_BUTTON2,					&CModTypeDlg::OnLegacyPlaybackSettings)
 	ON_COMMAND(IDC_BUTTON3,					&CModTypeDlg::OnDefaultBehaviour)
-
-	ON_NOTIFY_EX(TTN_NEEDTEXT, 0, &CModTypeDlg::OnToolTipNotify)
-
 	//}}AFX_MSG_MAP
 
 END_MESSAGE_MAP()
@@ -49,7 +52,7 @@ END_MESSAGE_MAP()
 
 void CModTypeDlg::DoDataExchange(CDataExchange* pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	DialogBase::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CModTypeDlg)
 	DDX_Control(pDX, IDC_COMBO1,		m_TypeBox);
 	DDX_Control(pDX, IDC_COMBO2,		m_ChannelsBox);
@@ -68,14 +71,21 @@ void CModTypeDlg::DoDataExchange(CDataExchange* pDX)
 }
 
 
+CModTypeDlg::CModTypeDlg(CSoundFile &sf, CWnd *parent)
+	: DialogBase{IDD_MODDOC_MODTYPE, parent}
+	, sndFile{sf}
+{
+}
+
+
 BOOL CModTypeDlg::OnInitDialog()
 {
-	CDialog::OnInitDialog();
-	m_nType = sndFile.GetType();
+	DialogBase::OnInitDialog();
+	m_nType = sndFile.GetBestSaveFormat();
 	m_nChannels = sndFile.GetNumChannels();
 	m_tempoSwing = sndFile.m_tempoSwing;
 	m_playBehaviour = sndFile.m_playBehaviour;
-	initialized = false;
+	m_initialized = false;
 
 	// Mod types
 
@@ -103,14 +113,35 @@ BOOL CModTypeDlg::OnInitDialog()
 	if(sndFile.m_dwCreatedWithVersion) SetDlgItemText(IDC_EDIT_CREATEDWITH, _T("OpenMPT ") + FormatVersionNumber(sndFile.m_dwCreatedWithVersion));
 	SetDlgItemText(IDC_EDIT_SAVEDWITH, mpt::ToCString(sndFile.m_modFormat.madeWithTracker.empty() ? sndFile.m_modFormat.formatName : sndFile.m_modFormat.madeWithTracker));
 
-	const int iconSize = Util::ScalePixels(32, m_hWnd);
-	m_warnIcon = (HICON)::LoadImage(NULL, IDI_EXCLAMATION, IMAGE_ICON, iconSize, iconSize, LR_SHARED);
-
+	OnDPIChanged();
 	UpdateDialog();
 
-	initialized = true;
-	EnableToolTips(TRUE);
+	m_initialized = true;
 	return TRUE;
+}
+
+
+void CModTypeDlg::OnDPIChanged()
+{
+	DialogBase::OnDPIChanged();
+
+	const int iconSize = HighDPISupport::ScalePixels(32, m_hWnd);
+	DestroyIcon(m_warnIcon);
+	m_warnIcon = nullptr;
+
+	mpt::Library comctl32(mpt::LibraryPath::System(P_("Comctl32")));
+	if(comctl32.IsValid())
+	{
+		using PLOADICONWITHSCALEDOWN = HRESULT(WINAPI *)(HINSTANCE, PCWSTR, int, int, HICON *);
+		PLOADICONWITHSCALEDOWN LoadIconWithScaleDown = nullptr;
+		if(comctl32.Bind(LoadIconWithScaleDown, "LoadIconWithScaleDown"))
+			LoadIconWithScaleDown(NULL, MAKEINTRESOURCEW(reinterpret_cast<uintptr_t>(IDI_EXCLAMATION)), iconSize, iconSize, &m_warnIcon);
+	}
+	if(!m_warnIcon)
+		m_warnIcon = reinterpret_cast<HICON>(::LoadImage(NULL, IDI_EXCLAMATION, IMAGE_ICON, iconSize, iconSize, LR_SHARED));
+
+	if(m_showWarning)
+		static_cast<CStatic *>(GetDlgItem(IDC_STATIC1))->SetIcon(m_warnIcon);
 }
 
 
@@ -177,7 +208,7 @@ void CModTypeDlg::UpdateDialog()
 	if(allowedFlags[SONG_PT_MODE]) OnPTModeChanged();
 
 	// Tempo modes
-	const TempoMode oldTempoMode = initialized ? static_cast<TempoMode>(m_TempoModeBox.GetItemData(m_TempoModeBox.GetCurSel())) : sndFile.m_nTempoMode;
+	const TempoMode oldTempoMode = m_initialized ? static_cast<TempoMode>(m_TempoModeBox.GetItemData(m_TempoModeBox.GetCurSel())) : sndFile.m_nTempoMode;
 	m_TempoModeBox.ResetContent();
 
 	m_TempoModeBox.SetItemData(m_TempoModeBox.AddString(_T("Classic")), static_cast<DWORD_PTR>(TempoMode::Classic));
@@ -197,7 +228,7 @@ void CModTypeDlg::UpdateDialog()
 	OnTempoModeChanged();
 
 	// Mix levels
-	const MixLevels oldMixLevels = initialized ? static_cast<MixLevels>(m_PlugMixBox.GetItemData(m_PlugMixBox.GetCurSel())) : sndFile.GetMixLevels();
+	const MixLevels oldMixLevels = m_initialized ? static_cast<MixLevels>(m_PlugMixBox.GetItemData(m_PlugMixBox.GetCurSel())) : sndFile.GetMixLevels();
 	m_PlugMixBox.ResetContent();
 	if(m_nType == MOD_TYPE_MPT || sndFile.GetMixLevels() == MixLevels::v1_17RC3) // In XM/IT, this is only shown for backwards compatibility with existing tunes
 		m_PlugMixBox.SetItemData(m_PlugMixBox.AddString(_T("OpenMPT 1.17RC3")), static_cast<DWORD_PTR>(MixLevels::v1_17RC3));
@@ -243,7 +274,8 @@ void CModTypeDlg::UpdateDialog()
 	// Compatibility settings
 	const PlayBehaviourSet defaultBehaviour = CSoundFile::GetDefaultPlaybackBehaviour(m_nType);
 	const PlayBehaviourSet supportedBehaviour = CSoundFile::GetSupportedPlaybackBehaviour(m_nType);
-	bool enableSetDefaults = false, showWarning = false;
+	bool enableSetDefaults = false;
+	m_showWarning = false;
 	if(m_nType & (MOD_TYPE_MPT | MOD_TYPE_IT | MOD_TYPE_XM))
 	{
 		for(size_t i = 0; i < m_playBehaviour.size(); i++)
@@ -256,7 +288,7 @@ void CModTypeDlg::UpdateDialog()
 				enableSetDefaults = true;
 				if(!isMPTM)
 				{
-					showWarning = true;
+					m_showWarning = true;
 					break;
 				}
 			}
@@ -264,13 +296,13 @@ void CModTypeDlg::UpdateDialog()
 			{
 
 				enableSetDefaults = true;
-				showWarning = true;
+				m_showWarning = true;
 				break;
 			}
 		}
 	}
-	static_cast<CStatic *>(GetDlgItem(IDC_STATIC1))->SetIcon(showWarning ? m_warnIcon : nullptr);
-	GetDlgItem(IDC_STATIC2)->SetWindowText(showWarning
+	static_cast<CStatic *>(GetDlgItem(IDC_STATIC1))->SetIcon(m_showWarning ? m_warnIcon : nullptr);
+	GetDlgItem(IDC_STATIC2)->SetWindowText(m_showWarning
 		? _T("Playback settings have been set to legacy compatibility mode. Click \"Set Defaults\" to use the recommended settings instead.")
 		: _T("Compatibility settings are currently optimal. It is advised to not edit them."));
 	GetDlgItem(IDC_BUTTON3)->EnableWindow(enableSetDefaults ? TRUE : FALSE);
@@ -403,6 +435,7 @@ void CModTypeDlg::OnOK()
 	
 	sndFile.m_nDefaultRowsPerBeat    = std::min(static_cast<ROWINDEX>(GetDlgItemInt(IDC_ROWSPERBEAT)), MAX_ROWS_PER_BEAT);
 	sndFile.m_nDefaultRowsPerMeasure = std::min(static_cast<ROWINDEX>(GetDlgItemInt(IDC_ROWSPERMEASURE)), MAX_ROWS_PER_BEAT);
+	sndFile.m_PlayState.UpdateTimeSignature(sndFile);
 
 	sel = m_TempoModeBox.GetCurSel();
 	if(sel >= 0)
@@ -411,10 +444,13 @@ void CModTypeDlg::OnOK()
 		sndFile.m_nTempoMode = static_cast<TempoMode>(m_TempoModeBox.GetItemData(sel));
 		if(oldMode == TempoMode::Modern && sndFile.m_nTempoMode != TempoMode::Modern)
 		{
-			double newTempo = sndFile.m_nDefaultTempo.ToDouble() * (sndFile.m_nDefaultSpeed * sndFile.m_nDefaultRowsPerBeat) / ((sndFile.m_nTempoMode == TempoMode::Classic) ? 24 : 60);
-			if(!newModSpecs.hasFractionalTempo)
-				newTempo = std::round(newTempo);
-			sndFile.m_nDefaultTempo = Clamp(TEMPO(newTempo), newModSpecs.GetTempoMin(), newModSpecs.GetTempoMax());
+			for(auto &order : sndFile.Order)
+			{
+				double newTempo = order.GetDefaultTempo().ToDouble() * (order.GetDefaultSpeed() * sndFile.m_nDefaultRowsPerBeat) / ((sndFile.m_nTempoMode == TempoMode::Classic) ? 24 : 60);
+				if(!newModSpecs.hasFractionalTempo)
+					newTempo = std::round(newTempo);
+				order.SetDefaultTempo(Clamp(TEMPO(newTempo), newModSpecs.GetTempoMin(), newModSpecs.GetTempoMax()));
+			}
 		}
 	}
 	if(sndFile.m_nTempoMode == TempoMode::Modern)
@@ -441,22 +477,14 @@ void CModTypeDlg::OnOK()
 	}
 
 	DestroyIcon(m_warnIcon);
-	CDialog::OnOK();
+	DialogBase::OnOK();
 }
 
 
-BOOL CModTypeDlg::OnToolTipNotify(UINT, NMHDR *pNMHDR, LRESULT *)
+CString CModTypeDlg::GetToolTipText(UINT id, HWND) const
 {
-	TOOLTIPTEXT *pTTT = (TOOLTIPTEXT*)pNMHDR;
-	UINT_PTR nID = pNMHDR->idFrom;
-	if(pTTT->uFlags & TTF_IDISHWND)
-	{
-		// idFrom is actually the HWND of the tool
-		nID = ::GetDlgCtrlID((HWND)nID);
-	}
-
-	mpt::tstring text;
-	switch(nID)
+	CString text;
+	switch(id)
 	{
 	case IDC_CHECK1:
 		text = _T("Note slides always slide the same amount, not depending on the sample frequency.");
@@ -495,14 +523,13 @@ BOOL CModTypeDlg::OnToolTipNotify(UINT, NMHDR *pNMHDR, LRESULT *)
 				{
 					if(i > 0)
 						text += _T(" / ");
-					text += MPT_TFORMAT("{}%")(Util::muldivr(m_tempoSwing[i], 100, TempoSwing::Unity));
+					text += MPT_CFORMAT("{}%")(Util::muldivr(m_tempoSwing[i], 100, TempoSwing::Unity));
 				}
 			}
 		}
 	}
 
-	mpt::String::WriteWinBuf(pTTT->szText) = text;
-	return TRUE;
+	return text;
 }
 
 
@@ -523,9 +550,18 @@ void CLegacyPlaybackSettingsDlg::DoDataExchange(CDataExchange* pDX)
 }
 
 
+CLegacyPlaybackSettingsDlg::CLegacyPlaybackSettingsDlg(CWnd *parent, PlayBehaviourSet &playBehaviour, MODTYPE modType)
+	: ResizableDialog{IDD_LEGACY_PLAYBACK, parent}
+	, m_playBehaviour{playBehaviour}
+	, m_modType{modType}
+{
+}
+
+
 BOOL CLegacyPlaybackSettingsDlg::OnInitDialog()
 {
 	ResizableDialog::OnInitDialog();
+	m_CheckList.SetItemHeight(0, 0);  // Workaround to force MFC to correctly compute the height of the first list item, in particular on high-DPI setups
 	OnFilterStringChanged();
 	UpdateSelectDefaults();
 	return TRUE;
@@ -665,7 +701,7 @@ void CLegacyPlaybackSettingsDlg::OnFilterStringChanged()
 		case kST3EffectMemory: desc = _T("Most effects share the same memory"); break;
 		case kST3PortaSampleChange: desc = _T("Portamento with instrument number applies volume settings of new sample, but not the new sample itself (GUS)"); break;
 		case kST3VibratoMemory: desc = _T("Do not remember vibrato type in effect memory"); break;
-		case kST3LimitPeriod: desc = _T("ModPlug Tracker frequency limits"); break;
+		case kST3LimitPeriod: desc = _T("Stop note when reaching the format's maximum note frequency"); break;
 		case KST3PortaAfterArpeggio: desc = _T("Portamento immediately following an arpeggio effect continues at the last arpeggiated note"); break;
 		case kMODOneShotLoops: desc = _T("ProTracker one-shot loops"); break;
 		case kMODIgnorePanning: desc = _T("Ignore panning commands"); break;
@@ -706,6 +742,17 @@ void CLegacyPlaybackSettingsDlg::OnFilterStringChanged()
 		case kITResetFilterOnPortaSmpChange: desc = _T("Reset filter on portamento if new note plays a different sample"); break;
 		case kITInitialNoteMemory: desc = _T("Initial Last Note Memory of each channel is C-0 instead of No Note"); break;
 		case kPluginDefaultProgramAndBank1: desc = _T("Assume initial plugin MIDI program and bank number is 1"); break;
+		case kITNoSustainOnPortamento: desc = _T("Portamento after note-off does not re-enable sample sustain loop"); break;
+		case kITEmptyNoteMapSlotIgnoreCell: desc = _T("Ignore pattern cell completely when trying to play unmapped instrument note"); break;
+		case kITOffsetWithInstrNumber: desc = _T("Offset command with instrument number recalls offset with last note"); break;
+		case kContinueSampleWithoutInstr: desc = _T("New note without instrument number does not play looped samples from the start"); break;
+		case kMIDINotesFromChannelPlugin: desc = _T("MIDI notes can be sent to channel plugins"); break;
+		case kITDoublePortamentoSlides: desc = _T("Parameters of conflicting volume and effect column portamento commands may overwrite each other"); break;
+		case kS3MIgnoreCombinedFineSlides: desc =_T("Ignore combined fine slides (Kxy / Lxy)"); break;
+		case kFT2AutoVibratoAbortSweep: desc = _T("Key-off before auto-vibrato sweep-in is complete resets auto-vibrato depth"); break;
+		case kLegacyPPQpos: desc = _T("Report inaccurate PPQ position to VST plugins (like OpenMPT 1.31 and older)"); break;
+		case kLegacyPluginNNABehaviour: desc = _T("Plugin notes with New Note Action set to Continue are affected by note-offs (like OpenMPT 1.31 and older)"); break;
+		case kITCarryAfterNoteOff: desc = _T("Note-Off status does not influence Envelope Carry behaviour"); break;
 
 		default: MPT_ASSERT_NOTREACHED();
 		}
@@ -732,21 +779,30 @@ void CLegacyPlaybackSettingsDlg::OnFilterStringChanged()
 
 void CRemoveChannelsDlg::DoDataExchange(CDataExchange* pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	DialogBase::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_REMCHANSLIST,		m_RemChansList);
 }
 
 
-BEGIN_MESSAGE_MAP(CRemoveChannelsDlg, CDialog)
+BEGIN_MESSAGE_MAP(CRemoveChannelsDlg, DialogBase)
 	ON_LBN_SELCHANGE(IDC_REMCHANSLIST,		&CRemoveChannelsDlg::OnChannelChanged)
 END_MESSAGE_MAP()
 
+
+CRemoveChannelsDlg::CRemoveChannelsDlg(CSoundFile &sf, CHANNELINDEX toRemove, bool showCancel, CWnd *parent)
+	: DialogBase{IDD_REMOVECHANNELS, parent}
+	, sndFile{sf}
+	, m_bKeepMask(sf.GetNumChannels(), true)
+	, m_nRemove{toRemove}
+	, m_ShowCancel{showCancel}
+{
+}
 
 
 BOOL CRemoveChannelsDlg::OnInitDialog()
 {
 	CString s;
-	CDialog::OnInitDialog();
+	DialogBase::OnInitDialog();
 	const CHANNELINDEX numChannels = sndFile.GetNumChannels();
 	for(CHANNELINDEX n = 0; n < numChannels; n++)
 	{
@@ -786,9 +842,9 @@ void CRemoveChannelsDlg::OnOK()
 	}
 	if ((static_cast<CHANNELINDEX>(selCount) == m_nRemove && selCount > 0)
 		|| (m_nRemove == 0 && (sndFile.GetNumChannels() >= selCount + sndFile.GetModSpecifications().channelsMin)))
-		CDialog::OnOK();
+		DialogBase::OnOK();
 	else
-		CDialog::OnCancel();
+		DialogBase::OnCancel();
 }
 
 
@@ -872,7 +928,7 @@ void CKeyboardControl::Init(CWnd *parent, int octaves, bool cursorNotify)
 	MemsetZero(m_sampleNum);
 	
 	// Point size to pixels
-	int fontSize = -MulDiv(60, Util::GetDPIy(m_hWnd), 720);
+	int fontSize = -MulDiv(60, HighDPISupport::GetDpiForWindow(m_hWnd), 720);
 	m_font.CreateFont(fontSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_RASTER_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_DONTCARE, _T("MS Shell Dlg"));
 }
 
@@ -1096,7 +1152,7 @@ void CKeyboardControl::OnLButtonUp(UINT, CPoint)
 // Sample Map
 //
 
-BEGIN_MESSAGE_MAP(CSampleMapDlg, CDialog)
+BEGIN_MESSAGE_MAP(CSampleMapDlg, DialogBase)
 	ON_MESSAGE(WM_MOD_KBDNOTIFY,	&CSampleMapDlg::OnKeyboardNotify)
 	ON_WM_HSCROLL()
 	ON_COMMAND(IDC_CHECK1,			&CSampleMapDlg::OnUpdateSamples)
@@ -1105,7 +1161,7 @@ END_MESSAGE_MAP()
 
 void CSampleMapDlg::DoDataExchange(CDataExchange* pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	DialogBase::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CSampleMapDlg)
 	DDX_Control(pDX, IDC_KEYBOARD1,		m_Keyboard);
 	DDX_Control(pDX, IDC_COMBO1,		m_CbnSample);
@@ -1114,17 +1170,20 @@ void CSampleMapDlg::DoDataExchange(CDataExchange* pDX)
 }
 
 
+CSampleMapDlg::CSampleMapDlg(CSoundFile &sf, INSTRUMENTINDEX nInstr, CWnd *parent)
+	: DialogBase{IDD_EDITSAMPLEMAP, parent}
+	, sndFile{sf}
+	, m_nInstrument{nInstr}
+{
+}
+
+
 BOOL CSampleMapDlg::OnInitDialog()
 {
-	CDialog::OnInitDialog();
+	DialogBase::OnInitDialog();
 	ModInstrument *pIns = sndFile.Instruments[m_nInstrument];
 	if(pIns)
-	{
-		for(UINT i = 0; i < NOTE_MAX; i++)
-		{
-			KeyboardMap[i] = pIns->Keyboard[i];
-		}
-	}
+		KeyboardMap = pIns->Keyboard;
 	m_Keyboard.Init(this, 3, TRUE);
 	m_SbOctave.SetRange(0, 7);
 	m_SbOctave.SetPos(4);
@@ -1136,7 +1195,7 @@ BOOL CSampleMapDlg::OnInitDialog()
 
 void CSampleMapDlg::OnHScroll(UINT nCode, UINT nPos, CScrollBar *pBar)
 {
-	CDialog::OnHScroll(nCode, nPos, pBar);
+	DialogBase::OnHScroll(nCode, nPos, pBar);
 	OnUpdateKeyboard();
 	OnUpdateOctave();
 }
@@ -1235,39 +1294,37 @@ LRESULT CSampleMapDlg::OnKeyboardNotify(WPARAM wParam, LPARAM lParam)
 		{
 			const uint32 note = static_cast<uint32>(baseOctave * 12 + lParam);
 
-			if(mouseAction == mouseUnknown)
+			if(mouseAction == MouseAction::Unknown)
 			{
 				// Mouse down -> decide if we are going to set or remove notes
-				mouseAction = mouseSet;
+				mouseAction = MouseAction::Set;
 				if(KeyboardMap[note] == sample)
 				{
-					mouseAction = (KeyboardMap[note] == pIns->Keyboard[note]) ? mouseZero : mouseUnset;
+					mouseAction = (KeyboardMap[note] == pIns->Keyboard[note]) ? MouseAction::Zero : MouseAction::Unset;
 				}
 			}
 
 			switch(mouseAction)
 			{
-			case mouseUnknown:
-			case mouseSet:
+			case MouseAction::Unknown:
+			case MouseAction::Set:
 				KeyboardMap[note] = sample;
 				break;
-			case mouseUnset:
+			case MouseAction::Unset:
 				KeyboardMap[note] = pIns->Keyboard[note];
 				break;
-			case mouseZero:
+			case MouseAction::Zero:
 				if(KeyboardMap[note] == sample)
-				{
 					KeyboardMap[note] = 0;
-				}
 				break;
 			}
 			OnUpdateKeyboard();
 		}
 	}
+	
 	if(wParam == KBDNOTIFY_LBUTTONUP)
-	{
-		mouseAction = mouseUnknown;
-	}
+		mouseAction = MouseAction::Unknown;
+	
 	SetDlgItemText(IDC_TEXT2, s);
 	return 0;
 }
@@ -1289,11 +1346,11 @@ void CSampleMapDlg::OnOK()
 		}
 		if(modified)
 		{
-			CDialog::OnOK();
+			DialogBase::OnOK();
 			return;
 		}
 	}
-	CDialog::OnCancel();
+	DialogBase::OnCancel();
 }
 
 
@@ -1303,6 +1360,13 @@ void CSampleMapDlg::OnOK()
 BEGIN_MESSAGE_MAP(CEditHistoryDlg, ResizableDialog)
 	ON_COMMAND(IDC_BTN_CLEAR,	&CEditHistoryDlg::OnClearHistory)
 END_MESSAGE_MAP()
+
+
+CEditHistoryDlg::CEditHistoryDlg(CWnd *parent, CModDoc &modDoc)
+	: ResizableDialog{IDD_EDITHISTORY, parent}
+	, m_modDoc{modDoc}
+{
+}
 
 
 BOOL CEditHistoryDlg::OnInitDialog()
@@ -1373,7 +1437,7 @@ void CEditHistoryDlg::OnClearHistory()
 
 void CInputDlg::DoDataExchange(CDataExchange* pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	DialogBase::DoDataExchange(pDX);
 	if(m_minValueInt == m_maxValueInt && m_minValueDbl == m_maxValueDbl)
 	{
 		// Only need this for freeform text
@@ -1383,9 +1447,24 @@ void CInputDlg::DoDataExchange(CDataExchange* pDX)
 }
 
 
+CInputDlg::CInputDlg(CWnd *parent, const TCHAR *desc, const TCHAR *defaultString, int32 maxLength, double minValDbl, double maxValDbl, double defaultDbl, int32 minValInt, int32 maxValInt, int32 defaultInt)
+	: DialogBase{IDD_INPUT, parent}
+	, m_description{desc}
+	, m_minValueDbl{minValDbl}
+	, m_maxValueDbl{maxValDbl}
+	, m_minValueInt{minValInt}
+	, m_maxValueInt{maxValInt}
+	, m_maxLength{maxLength}
+	, resultAsInt{defaultInt}
+	, resultAsDouble{defaultDbl}
+	, resultAsString{defaultString}
+{
+}
+
+
 BOOL CInputDlg::OnInitDialog()
 {
-	CDialog::OnInitDialog();
+	DialogBase::OnInitDialog();
 	SetDlgItemText(IDC_PROMPT, m_description);
 
 	// Get all current control sizes and positions
@@ -1452,7 +1531,7 @@ BOOL CInputDlg::OnInitDialog()
 
 void CInputDlg::OnOK()
 {
-	CDialog::OnOK();
+	DialogBase::OnOK();
 	GetDlgItemText(IDC_EDIT1, resultAsString);
 	resultAsInt = static_cast<int32>(GetDlgItemInt(IDC_EDIT1));
 	Limit(resultAsInt, m_minValueInt, m_maxValueInt);
@@ -1464,33 +1543,20 @@ void CInputDlg::OnOK()
 ///////////////////////////////////////////////////////////////////////////////////////
 // Messagebox with 'don't show again'-option.
 
-class CMsgBoxHidable : public CDialog
-{
-public:
-	CMsgBoxHidable(const TCHAR *strMsg, bool checkStatus = true, CWnd* pParent = NULL);
-	enum { IDD = IDD_MSGBOX_HIDABLE };
-
-	const TCHAR *m_StrMsg;
-	int m_nCheckStatus;
-protected:
-	void DoDataExchange(CDataExchange* pDX) override;   // DDX/DDV support
-	BOOL OnInitDialog() override;
-};
-
-
 struct MsgBoxHidableMessage
 {
+	const TCHAR *mainTitle;
 	const TCHAR *message;
-	uint32 mask;
-	bool defaultDontShowAgainStatus; // true for don't show again, false for show again.
+	const uint32 mask;
+	const bool defaultDontShowAgainStatus; // true for don't show again, false for show again.
 };
 
 static constexpr MsgBoxHidableMessage HidableMessages[] =
 {
-	{ _T("Note: First two bytes of oneshot samples are silenced for ProTracker compatibility."), 1, true },
-	{ _T("Hint: To create IT-files without MPT-specific extensions included, try compatibility export from File-menu."), 1 << 1, true },
-	{ _T("Hint: To create XM-files without MPT-specific extensions included, try compatibility export from File-menu."), 1 << 3, true },
-	{ _T("Warning: The exported file will not contain any of MPT's file format hacks."), 1 << 4, true },
+	{ _T("Compatibility Notice"), _T("The first two bytes of oneshot samples are silenced for ProTracker compatibility."), 1, true },
+	{ _T("Compatibility Hint"), _T("To create IT files without OpenMPT-specific extensions included, try compatibility export from File menu."), 1 << 1, true },
+	{ _T("Compatibility Hint"), _T("To create XM files without OpenMPT-specific extensions included, try compatibility export from File menu."), 1 << 3, true },
+	{ _T("Compatibility Notice"), _T("The exported file will not contain any of OpenMPT's file format hacks."), 1 << 4, true },
 };
 
 static_assert(mpt::array_size<decltype(HidableMessages)>::size == enMsgBoxHidableMessage_count);
@@ -1500,41 +1566,29 @@ static_assert(mpt::array_size<decltype(HidableMessages)>::size == enMsgBoxHidabl
 // controls the show/don't show-flags.
 void MsgBoxHidable(enMsgBoxHidableMessage enMsg)
 {
-	// Check whether the message should be shown.
-	if((TrackerSettings::Instance().gnMsgBoxVisiblityFlags & HidableMessages[enMsg].mask) == 0)
+	const auto &msg = HidableMessages[enMsg];
+	if((TrackerSettings::Instance().gnMsgBoxVisiblityFlags & msg.mask) == 0)
 		return;
 
-	// Show dialog.
-	CMsgBoxHidable dlg(HidableMessages[enMsg].message, HidableMessages[enMsg].defaultDontShowAgainStatus);
-	dlg.DoModal();
+#if MPT_WINNT_AT_LEAST(MPT_WIN_VISTA) && defined(UNICODE)
+	if(CTaskDialog::IsSupported()
+	   && !(mpt::OS::Windows::IsWine() && theApp.GetWineVersion()->Version().IsBefore(mpt::OS::Wine::Version(3, 13, 0))))
+	{
+		CTaskDialog taskDialog(msg.message, msg.mainTitle ? CString{msg.mainTitle} : CString{}, AfxGetAppName(), TDCBF_OK_BUTTON);
+		taskDialog.SetVerificationCheckboxText(_T("Do not show this message again"));
+		taskDialog.SetVerificationCheckbox(msg.defaultDontShowAgainStatus);
+		taskDialog.DoModal();
 
-	// Update visibility flags.
-	const uint32 mask = HidableMessages[enMsg].mask;
-	if(dlg.m_nCheckStatus == BST_CHECKED)
-		TrackerSettings::Instance().gnMsgBoxVisiblityFlags &= ~mask;
-	else
-		TrackerSettings::Instance().gnMsgBoxVisiblityFlags |= mask;
-}
-
-
-CMsgBoxHidable::CMsgBoxHidable(const  TCHAR *strMsg, bool checkStatus, CWnd* pParent)
-	: CDialog(CMsgBoxHidable::IDD, pParent)
-	, m_StrMsg(strMsg)
-	, m_nCheckStatus((checkStatus) ? BST_CHECKED : BST_UNCHECKED)
-{}
-
-BOOL CMsgBoxHidable::OnInitDialog()
-{
-	CDialog::OnInitDialog();
-	SetDlgItemText(IDC_MESSAGETEXT, m_StrMsg);
-	SetWindowText(AfxGetAppName());
-	return TRUE;
-}
-
-void CMsgBoxHidable::DoDataExchange(CDataExchange* pDX)
-{
-	CDialog::DoDataExchange(pDX);
-	DDX_Check(pDX, IDC_DONTSHOWAGAIN, m_nCheckStatus);
+		if(taskDialog.GetVerificationCheckboxState())
+			TrackerSettings::Instance().gnMsgBoxVisiblityFlags &= ~msg.mask;
+		else
+			TrackerSettings::Instance().gnMsgBoxVisiblityFlags |= msg.mask;
+	} else
+#endif
+	{
+		Reporting::Information(msg.message, msg.mainTitle ? CString{msg.mainTitle} : CString{});
+		TrackerSettings::Instance().gnMsgBoxVisiblityFlags |= msg.mask;
+	}
 }
 
 

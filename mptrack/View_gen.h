@@ -12,11 +12,10 @@
 #pragma once
 
 #include "openmpt/all/BuildSettings.hpp"
+#include "AccessibleControls.h"
 #include "ColorPickerButton.h"
-#include "resource.h"
+#include "PluginComboBox.h"
 #include "UpdateHints.h"
-#include "WindowMessages.h"
-#include "../soundlib/plugins/PluginStructs.h"
 
 OPENMPT_NAMESPACE_BEGIN
 
@@ -32,8 +31,9 @@ class CViewGlobals: public CFormView
 protected:
 	CRect m_rcClient;
 	CTabCtrl m_TabCtrl;
-	CComboBox m_CbnEffects[CHANNELS_IN_TAB];
-	CComboBox m_CbnPlugin, m_CbnParam, m_CbnOutput;
+	PluginComboBox m_CbnEffects[CHANNELS_IN_TAB];
+	PluginComboBox m_CbnPlugin;
+	CComboBox m_CbnParam, m_CbnOutput;
 
 	CSliderCtrl m_sbVolume[CHANNELS_IN_TAB], m_sbPan[CHANNELS_IN_TAB], m_sbValue, m_sbDryRatio;
 	ColorPickerButton m_channelColor[CHANNELS_IN_TAB];
@@ -50,21 +50,22 @@ protected:
 
 	CComboBox m_CbnSpecialMixProcessing;
 	CSpinButtonCtrl m_SpinMixGain;
+	AccessibleButton m_prevPluginButton, m_nextPluginButton;
 
 	enum {AdjustPattern = true, NoPatternAdjust = false};
 
 protected:
-	CViewGlobals() : CFormView(IDD_VIEW_GLOBALS) { }
+	CViewGlobals();
 	DECLARE_SERIAL(CViewGlobals)
 
 public:
 	CModDoc* GetDocument() const;
 	void RecalcLayout();
 	void LockControls() { m_nLockCount++; }
-	void UnlockControls() { PostMessage(WM_MOD_UNLOCKCONTROLS); }
+	void UnlockControls();
 	bool IsLocked() const noexcept { return (m_nLockCount > 0); }
 	int GetDlgItemIntEx(UINT nID);
-	void PopulateChannelPlugins(PLUGINDEX plugin = PLUGINDEX_INVALID);
+	void PopulateChannelPlugins(UpdateHint hint, const CObject *pObj = nullptr);
 	void BuildEmptySlotList(std::vector<PLUGINDEX> &emptySlots);
 	bool MovePlug(PLUGINDEX src, PLUGINDEX dest, bool bAdjustPat = AdjustPattern);
 
@@ -73,6 +74,7 @@ public:
 	void OnInitialUpdate() override;
 	void DoDataExchange(CDataExchange *pDX) override;
 	void OnUpdate(CView *pSender, LPARAM lHint, CObject *pHint) override;
+	INT_PTR OnToolHitTest(CPoint point, TOOLINFO *pTI) const override;
 
 	void UpdateView(UpdateHint hint, CObject *pObj = nullptr);
 	LRESULT OnModViewMsg(WPARAM, LPARAM);

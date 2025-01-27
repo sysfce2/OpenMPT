@@ -657,7 +657,7 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 		path = path.WithTrailingSlash();
 		HANDLE hFind = NULL;
 		WIN32_FIND_DATA wfd = {};
-		hFind = FindFirstFile((path + P_("*.*")).AsNative().c_str(), &wfd);
+		hFind = FindFirstFile(mpt::support_long_path((path + P_("*.*")).AsNative()).c_str(), &wfd);
 		if(hFind != NULL && hFind != INVALID_HANDLE_VALUE)
 		{
 			do
@@ -675,9 +675,8 @@ ExecResult Context::ExecutePosixShellScript(std::string script, FlagSet<ExecFlag
 						try
 						{
 							mpt::IO::FileRef f(filename);
-							std::vector<char> buf = f;
 							mpt::PathString treeFilename = mpt::PathString::FromNative(filename.AsNative().substr(basePath.AsNative().length()));
-							result.filetree[treeFilename.ToUTF8()] = buf;
+							result.filetree[treeFilename.ToUTF8()] = f;
 						} catch (std::exception &)
 						{
 							// nothing?!

@@ -12,23 +12,23 @@ class CompressDecompressor : public Decompressor
 {
 public:
 	CompressDecompressor(const Buffer &packedData,bool exactSizeKnown,bool verify);
-	virtual ~CompressDecompressor();
+	~CompressDecompressor() noexcept=default;
 
-	virtual size_t getRawSize() const noexcept override final;
-	virtual size_t getPackedSize() const noexcept override final;
+	size_t getRawSize() const noexcept final;
+	size_t getPackedSize() const noexcept final;
 
-	virtual const std::string &getName() const noexcept override final;
+	const std::string &getName() const noexcept final;
 
-	virtual void decompressImpl(Buffer &rawData,bool verify) override final;
+	void decompressImpl(Buffer &rawData,bool verify) final;
 
-	static bool detectHeader(uint32_t hdr) noexcept;
+	static bool detectHeader(uint32_t hdr,uint32_t footer) noexcept;
 
 	static std::shared_ptr<Decompressor> create(const Buffer &packedData,bool exactSizeKnown,bool verify);
 
 private:
 	const Buffer	&_packedData;
 
-	size_t		_rawSize=0;
+	size_t		_rawSize{0};
 
 	bool		_hasBlocks;
 	uint32_t	_maxBits;

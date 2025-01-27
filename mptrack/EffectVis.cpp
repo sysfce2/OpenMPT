@@ -10,12 +10,14 @@
 
 #include "stdafx.h"
 #include "EffectVis.h"
-#include "Mainfrm.h"
 #include "Childfrm.h"
 #include "Globals.h"
+#include "HighDPISupport.h"
 #include "InputHandler.h"
-#include "Mptrack.h"
+#include "Mainfrm.h"
 #include "Moddoc.h"
+#include "Mptrack.h"
+#include "resource.h"
 #include "View_pat.h"
 
 
@@ -23,10 +25,7 @@ OPENMPT_NAMESPACE_BEGIN
 
 CEffectVis::Action CEffectVis::m_nAction = CEffectVis::Action::OverwriteFX;
 
-IMPLEMENT_DYNAMIC(CEffectVis, CDialog)
-
-
-BEGIN_MESSAGE_MAP(CEffectVis, CDialog)
+BEGIN_MESSAGE_MAP(CEffectVis, DialogBase)
 	ON_WM_ERASEBKGND()
 	ON_WM_PAINT()
 	ON_WM_SIZE()
@@ -54,7 +53,7 @@ CEffectVis::CEffectVis(CViewPattern *pViewPattern, ROWINDEX startRow, ROWINDEX e
 
 void CEffectVis::DoDataExchange(CDataExchange* pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	DialogBase::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_VISSTATUS, m_edVisStatus);
 	DDX_Control(pDX, IDC_VISACTION, m_cmbActionList);
 }
@@ -86,7 +85,6 @@ void CEffectVis::OnPaint()
 {
 	CPaintDC dc(this); // device context for painting
 	ShowVis(&dc);
-
 }
 
 
@@ -423,7 +421,7 @@ void CEffectVis::DrawNodes()
 		m_nDragItem = m_startRow;
 
 	//Draw
-	const int lineWidth = Util::ScalePixels(1, m_hWnd);
+	const int lineWidth = HighDPISupport::ScalePixels(1, m_hWnd);
 	const int nodeSizeHalf = m_nodeSizeHalf;
 	const int nodeSizeHalf2 = nodeSizeHalf - lineWidth + 1;
 	const int nodeSize = 2 * nodeSizeHalf + 1;
@@ -480,15 +478,16 @@ void CEffectVis::OpenEditor(CWnd *parent)
 		GetWindowPlacement(&wnd);
 		wnd.showCmd = SW_SHOWNOACTIVATE;
 		CRect rect = wnd.rcNormalPosition;
+		const auto dpi = HighDPISupport::GetDpiForWindow(m_hWnd);
 		if(TrackerSettings::Instance().effectVisX > int32_min && TrackerSettings::Instance().effectVisY > int32_min)
 		{
 			CRect mainRect;
 			CMainFrame::GetMainFrame()->GetWindowRect(mainRect);
-			rect.left = mainRect.left + MulDiv(TrackerSettings::Instance().effectVisX, Util::GetDPIx(m_hWnd), 96);
-			rect.top = mainRect.top + MulDiv(TrackerSettings::Instance().effectVisY, Util::GetDPIx(m_hWnd), 96);
+			rect.left = mainRect.left + MulDiv(TrackerSettings::Instance().effectVisX, dpi, 96);
+			rect.top = mainRect.top + MulDiv(TrackerSettings::Instance().effectVisY, dpi, 96);
 		}
-		rect.right = rect.left + MulDiv(TrackerSettings::Instance().effectVisWidth, Util::GetDPIx(m_hWnd), 96);
-		rect.bottom = rect.top + MulDiv(TrackerSettings::Instance().effectVisHeight, Util::GetDPIx(m_hWnd), 96);
+		rect.right = rect.left + MulDiv(TrackerSettings::Instance().effectVisWidth, dpi, 96);
+		rect.bottom = rect.top + MulDiv(TrackerSettings::Instance().effectVisHeight, dpi, 96);
 		wnd.rcNormalPosition = rect;
 		SetWindowPlacement(&wnd);
 	}
@@ -525,10 +524,11 @@ void CEffectVis::DoClose()
 
 	CRect rect = wnd.rcNormalPosition;
 	rect.MoveToXY(rect.left - mainRect.left, rect.top - mainRect.top);
-	TrackerSettings::Instance().effectVisWidth = MulDiv(rect.Width(), 96, Util::GetDPIx(m_hWnd));
-	TrackerSettings::Instance().effectVisHeight = MulDiv(rect.Height(), 96, Util::GetDPIy(m_hWnd));
-	TrackerSettings::Instance().effectVisX = MulDiv(rect.left, 96, Util::GetDPIx(m_hWnd));
-	TrackerSettings::Instance().effectVisY = MulDiv(rect.top, 96, Util::GetDPIy(m_hWnd));
+	const auto dpi = HighDPISupport::GetDpiForWindow(m_hWnd);
+	TrackerSettings::Instance().effectVisWidth = MulDiv(rect.Width(), 96, dpi);
+	TrackerSettings::Instance().effectVisHeight = MulDiv(rect.Height(), 96, dpi);
+	TrackerSettings::Instance().effectVisX = MulDiv(rect.left, 96, dpi);
+	TrackerSettings::Instance().effectVisY = MulDiv(rect.top, 96, dpi);
 
 	m_dcGrid.SelectObject(m_pbOldGrid);
 	m_dcGrid.DeleteDC();
@@ -556,18 +556,25 @@ void CEffectVis::OnSize(UINT nType, int cx, int cy)
 	MPT_UNREFERENCED_PARAMETER(nType);
 	MPT_UNREFERENCED_PARAMETER(cx);
 	MPT_UNREFERENCED_PARAMETER(cy);
+
+	m_nodeSizeHalf = HighDPISupport::ScalePixels(3, m_hWnd);
+	m_marginBottom = HighDPISupport::ScalePixels(20, m_hWnd);
+	m_innerBorder = HighDPISupport::ScalePixels(4, m_hWnd);
+
 	GetClientRect(&m_rcFullWin);
 	m_rcDraw.SetRect(m_rcFullWin.left, m_rcFullWin.top, m_rcFullWin.right, m_rcFullWin.bottom - m_marginBottom);
 
-	const int actionListWidth = Util::ScalePixels(170, m_hWnd);
-	const int commandListWidth = Util::ScalePixels(160, m_hWnd);
+	const int actionListWidth = HighDPISupport::ScalePixels(170, m_hWnd);
+	const int commandListWidth = HighDPISupport::ScalePixels(160, m_hWnd);
 
+	auto dwp = ::BeginDeferWindowPos(3);
 	if (IsWindow(m_edVisStatus.m_hWnd))
-		m_edVisStatus.SetWindowPos(this, m_rcFullWin.left, m_rcDraw.bottom, m_rcFullWin.right - commandListWidth - actionListWidth, m_rcFullWin.bottom - m_rcDraw.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOZORDER);
+		::DeferWindowPos(dwp, m_edVisStatus, nullptr, m_rcFullWin.left, m_rcDraw.bottom, m_rcFullWin.right - commandListWidth - actionListWidth, m_rcFullWin.bottom - m_rcDraw.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOZORDER);
 	if (IsWindow(m_cmbActionList))
-		m_cmbActionList.SetWindowPos(this,  m_rcFullWin.right - commandListWidth - actionListWidth, m_rcDraw.bottom, actionListWidth, m_rcFullWin.bottom - m_rcDraw.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOZORDER);
+		::DeferWindowPos(dwp, m_cmbActionList, nullptr, m_rcFullWin.right - commandListWidth - actionListWidth, m_rcDraw.bottom, actionListWidth, m_rcFullWin.bottom - m_rcDraw.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOZORDER);
 	if (IsWindow(m_cmbEffectList))
-		m_cmbEffectList.SetWindowPos(this,  m_rcFullWin.right - commandListWidth, m_rcDraw.bottom, commandListWidth, m_rcFullWin.bottom - m_rcDraw.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOZORDER);
+		::DeferWindowPos(dwp, m_cmbEffectList, nullptr, m_rcFullWin.right - commandListWidth, m_rcDraw.bottom, commandListWidth, m_rcFullWin.bottom - m_rcDraw.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOZORDER);
+	::EndDeferWindowPos(dwp);
 
 	if(m_nRows)
 		m_pixelsPerRow = (float)(m_rcDraw.Width() - m_innerBorder * 2) / (float)m_nRows;
@@ -647,19 +654,19 @@ void CEffectVis::OnRButtonDown(UINT nFlags, CPoint point)
 		OnMouseMove(nFlags, point);
 	}
 
-	CDialog::OnRButtonDown(nFlags, point);
+	DialogBase::OnRButtonDown(nFlags, point);
 }
 
 void CEffectVis::OnRButtonUp(UINT nFlags, CPoint point)
 {
 	ReleaseCapture();
 	m_dwStatus = 0x00;
-	CDialog::OnRButtonUp(nFlags, point);
+	DialogBase::OnRButtonUp(nFlags, point);
 }
 
 void CEffectVis::OnMouseMove(UINT nFlags, CPoint point)
 {
-	CDialog::OnMouseMove(nFlags, point);
+	DialogBase::OnMouseMove(nFlags, point);
 
 	ROWINDEX row = ScreenXToRow(point.x);
 
@@ -735,26 +742,21 @@ void CEffectVis::OnLButtonDown(UINT nFlags, CPoint point)
 		OnMouseMove(nFlags, point);
 	}
 
-	CDialog::OnLButtonDown(nFlags, point);
+	DialogBase::OnLButtonDown(nFlags, point);
 }
 
 void CEffectVis::OnLButtonUp(UINT nFlags, CPoint point)
 {
 	ReleaseCapture();
 	m_dwStatus = 0x00;
-	CDialog::OnLButtonUp(nFlags, point);
+	DialogBase::OnLButtonUp(nFlags, point);
 	m_nLastDrawnRow = ROWINDEX_INVALID;
 }
 
 
 BOOL CEffectVis::OnInitDialog()
 {
-	CDialog::OnInitDialog();
-
-	int dpi = Util::GetDPIx(m_hWnd);
-	m_nodeSizeHalf = MulDiv(3, dpi, 96);
-	m_marginBottom = MulDiv(20, dpi, 96);
-	m_innerBorder = MulDiv(4, dpi, 96);
+	DialogBase::OnInitDialog();
 
 	// If first selected row is a PC event (or some other row but there aren't any other effects), default to PC note overwrite mode
 	// and use it as a template for new PC notes that will be created via the visualiser.
@@ -812,10 +814,11 @@ BOOL CEffectVis::OnInitDialog()
 	return true;
 }
 
+
 void CEffectVis::UpdateEffectList()
 {
 	const bool fillPlugParams = m_nAction == Action::FillPC || m_nAction == Action::OverwritePC;
-	CRect rect{0, 0, 16, 16};
+	CRect rect{0, 0, 16, HighDPISupport::ScalePixels(16, m_hWnd)};
 	if(m_cmbEffectList)
 	{
 		m_cmbEffectList.GetWindowRect(rect);

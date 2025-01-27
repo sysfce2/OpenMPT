@@ -16,13 +16,16 @@
 #include "Childfrm.h"
 #include "CloseMainDialog.h"
 #include "ColorConfigDlg.h"
+#include "dlg_misc.h"
 #include "Dlsbank.h"
 #include "FileDialog.h"
 #include "FolderScanner.h"
 #include "GeneralConfigDlg.h"
 #include "Globals.h"
+#include "HighDPISupport.h"
 #include "ImageLists.h"
 #include "InputHandler.h"
+#include "IPCWindow.h"
 #include "KeyConfigDlg.h"
 #include "Moddoc.h"
 #include "ModDocTemplate.h"
@@ -32,12 +35,12 @@
 #include "PatternClipboard.h"
 #include "PatternFont.h"
 #include "ProgressDialog.h"
+#include "QuickStartDialog.h"
 #include "Reporting.h"
 #include "resource.h"
 #include "SampleConfigDlg.h"
 #include "SelectPluginDialog.h"
 #include "UpdateCheck.h"
-#include "Vstplug.h"
 #include "WindowMessages.h"
 
 #include "../common/FileReader.h"
@@ -45,8 +48,8 @@
 #include "../common/Profiler.h"
 #include "../common/version.h"
 #include "../soundlib/AudioReadTarget.h"
-#include "../soundlib/plugins/PlugInterface.h"
-#include "../soundlib/plugins/PluginManager.h"
+#include "../soundlib/Tables.h"
+#include "../test/PlaybackTest.h"
 #include "mpt/audio/span.hpp"
 #include "mpt/base/alloc.hpp"
 #include "mpt/fs/fs.hpp"
@@ -57,17 +60,21 @@
 #include "openmpt/sounddevice/SoundDeviceBuffer.hpp"
 #include "openmpt/sounddevice/SoundDeviceManager.hpp"
 
+#ifdef MPT_ENABLE_PLAYBACK_TEST_MENU
+#include "../unarchiver/ungzip.h"
+#include "../common/GzipWriter.h"
+#endif
+
 #include <HtmlHelp.h>
 #include <Dbt.h>  // device change messages
 
 
 OPENMPT_NAMESPACE_BEGIN
 
-#define TIMERID_GUI 1
-#define TIMERID_NOTIFY 2
+static constexpr uint32 TIMERID_GUI = 1;
+static constexpr uint32 TIMERID_NOTIFY = 2;
 
-#define MPTTIMER_PERIOD		200
-
+static constexpr uint32 MPTTIMER_PERIOD = 100;
 
 /////////////////////////////////////////////////////////////////////////////
 // CMainFrame
@@ -83,86 +90,101 @@ BEGIN_MESSAGE_MAP(CMainFrame, CMDIFrameWnd)
 	ON_WM_DEVICECHANGE()
 	ON_WM_DROPFILES()
 	ON_WM_QUERYENDSESSION()
-	ON_COMMAND(ID_VIEW_OPTIONS,				&CMainFrame::OnViewOptions)
-
-	ON_COMMAND(ID_PLUGIN_SETUP,				&CMainFrame::OnPluginManager)
-	ON_COMMAND(ID_CLIPBOARD_MANAGER,		&CMainFrame::OnClipboardManager)
-	//ON_COMMAND(ID_HELP,					CMDIFrameWnd::OnHelp)
-	ON_COMMAND(ID_REPORT_BUG,				&CMainFrame::OnReportBug)
-	ON_COMMAND(ID_NEXTOCTAVE,				&CMainFrame::OnNextOctave)
-	ON_COMMAND(ID_PREVOCTAVE,				&CMainFrame::OnPrevOctave)
-	ON_COMMAND_RANGE(ID_FILE_OPENTEMPLATE, ID_FILE_OPENTEMPLATE_LASTINRANGE, &CMainFrame::OnOpenTemplateModule)
-	ON_COMMAND(ID_ADD_SOUNDBANK,			&CMainFrame::OnAddDlsBank)
-	ON_COMMAND(ID_IMPORT_MIDILIB,			&CMainFrame::OnImportMidiLib)
-	ON_COMMAND(ID_MIDI_RECORD,				&CMainFrame::OnMidiRecord)
-	ON_COMMAND(ID_PANIC,					&CMainFrame::OnPanic)
-	ON_COMMAND(ID_PLAYER_PAUSE,				&CMainFrame::OnPlayerPause)
-	ON_COMMAND_RANGE(ID_EXAMPLE_MODULES, ID_EXAMPLE_MODULES_LASTINRANGE, &CMainFrame::OnExampleSong)
-	ON_COMMAND_EX(IDD_TREEVIEW,				&CMainFrame::OnBarCheck)
-	ON_COMMAND_EX(ID_NETLINK_MODPLUG,		&CMainFrame::OnInternetLink)
-	ON_COMMAND_EX(ID_NETLINK_TOP_PICKS,		&CMainFrame::OnInternetLink)
-	ON_UPDATE_COMMAND_UI(ID_MIDI_RECORD,	&CMainFrame::OnUpdateMidiRecord)
-	ON_UPDATE_COMMAND_UI(ID_INDICATOR_TIME,	&CMainFrame::OnUpdateTime)
-	ON_UPDATE_COMMAND_UI(ID_INDICATOR_USER,	&CMainFrame::OnUpdateUser)
-	ON_UPDATE_COMMAND_UI(ID_INDICATOR_INFO,	&CMainFrame::OnUpdateInfo)
-	ON_UPDATE_COMMAND_UI(ID_INDICATOR_XINFO,&CMainFrame::OnUpdateXInfo)
-	ON_UPDATE_COMMAND_UI(IDD_TREEVIEW,		&CMainFrame::OnUpdateControlBarMenu)
-	ON_MESSAGE(WM_MOD_UPDATEPOSITION,		&CMainFrame::OnUpdatePosition)
-	ON_MESSAGE(WM_MOD_INVALIDATEPATTERNS,	&CMainFrame::OnInvalidatePatterns)
-	ON_MESSAGE(WM_MOD_KEYCOMMAND,			&CMainFrame::OnCustomKeyMsg)
-	ON_MESSAGE(WM_MOD_MIDIMAPPING,			&CMainFrame::OnViewMIDIMapping)
-	ON_MESSAGE(WM_MOD_UPDATEVIEWS,			&CMainFrame::OnUpdateViews)
-	ON_MESSAGE(WM_MOD_SETMODIFIED,			&CMainFrame::OnSetModified)
-#if defined(MPT_ENABLE_UPDATE)
-	ON_MESSAGE(WM_MOD_UPDATENOTIFY,			&CMainFrame::OnToolbarUpdateIndicatorClick)
-#endif // MPT_ENABLE_UPDATE
-	ON_COMMAND(ID_INTERNETUPDATE,			&CMainFrame::OnInternetUpdate)
-	ON_COMMAND(ID_UPDATE_AVAILABLE,			&CMainFrame::OnUpdateAvailable)
-	ON_COMMAND(ID_HELP_SHOWSETTINGSFOLDER,	&CMainFrame::OnShowSettingsFolder)
-#if defined(MPT_ENABLE_UPDATE)
-	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_START, &CMainFrame::OnUpdateCheckStart)
-	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_PROGRESS, &CMainFrame::OnUpdateCheckProgress)
-	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_CANCELED, &CMainFrame::OnUpdateCheckCanceled)
-	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_FAILURE, &CMainFrame::OnUpdateCheckFailure)
-	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_SUCCESS, &CMainFrame::OnUpdateCheckSuccess)
-#endif // MPT_ENABLE_UPDATE
-	ON_COMMAND(ID_HELPSHOW,					&CMainFrame::OnHelp)
-
-	ON_COMMAND_RANGE(ID_MRU_LIST_FIRST, ID_MRU_LIST_LAST, &CMainFrame::OnOpenMRUItem)
-	ON_UPDATE_COMMAND_UI(ID_MRU_LIST_FIRST,	&CMainFrame::OnUpdateMRUItem)
-	//}}AFX_MSG_MAP
-	ON_WM_INITMENU()
-	ON_WM_KILLFOCUS()
 	ON_WM_MOUSEWHEEL()
 	ON_WM_SHOWWINDOW()
 	ON_WM_ACTIVATEAPP()
+	ON_WM_ACTIVATE()
+
+	ON_MESSAGE(WM_DPICHANGED, &CMainFrame::OnDPIChanged)
+
+	ON_COMMAND(ID_VIEW_OPTIONS,      &CMainFrame::OnViewOptions)
+	ON_COMMAND(ID_PLUGIN_SETUP,      &CMainFrame::OnPluginManager)
+	ON_COMMAND(ID_CLIPBOARD_MANAGER, &CMainFrame::OnClipboardManager)
+	//ON_COMMAND(ID_HELP,              &CMDIFrameWnd::OnHelp)
+
+	ON_COMMAND(ID_REPORT_BUG,     &CMainFrame::OnReportBug)
+	ON_COMMAND(ID_NEXTOCTAVE,     &CMainFrame::OnNextOctave)
+	ON_COMMAND(ID_PREVOCTAVE,     &CMainFrame::OnPrevOctave)
+	ON_COMMAND(ID_ADD_SOUNDBANK,  &CMainFrame::OnAddDlsBank)
+	ON_COMMAND(ID_IMPORT_MIDILIB, &CMainFrame::OnImportMidiLib)
+	ON_COMMAND(ID_MIDI_RECORD,    &CMainFrame::OnMidiRecord)
+	ON_COMMAND(ID_PANIC,          &CMainFrame::OnPanic)
+	ON_COMMAND(ID_PLAYER_PAUSE,   &CMainFrame::OnPlayerPause)
+
+	ON_COMMAND_EX(IDD_TREEVIEW,         &CMainFrame::OnBarCheck)
+	ON_COMMAND_EX(ID_NETLINK_MODPLUG,   &CMainFrame::OnInternetLink)
+	ON_COMMAND_EX(ID_NETLINK_TOP_PICKS, &CMainFrame::OnInternetLink)
+
+	ON_MESSAGE(WM_MOD_UPDATEPOSITION,     &CMainFrame::OnUpdatePosition)
+	ON_MESSAGE(WM_MOD_INVALIDATEPATTERNS, &CMainFrame::OnInvalidatePatterns)
+	ON_MESSAGE(WM_MOD_KEYCOMMAND,         &CMainFrame::OnCustomKeyMsg)
+	ON_MESSAGE(WM_MOD_MIDIMAPPING,        &CMainFrame::OnViewMIDIMapping)
+	ON_MESSAGE(WM_MOD_UPDATEVIEWS,        &CMainFrame::OnUpdateViews)
+	ON_MESSAGE(WM_MOD_SETMODIFIED,        &CMainFrame::OnSetModified)
+#if defined(MPT_ENABLE_UPDATE)
+	ON_MESSAGE(WM_MOD_UPDATENOTIFY, &CMainFrame::OnToolbarUpdateIndicatorClick)
+#endif // MPT_ENABLE_UPDATE
+	ON_COMMAND(ID_INTERNETUPDATE,   &CMainFrame::OnInternetUpdate)
+	ON_COMMAND(ID_UPDATE_AVAILABLE, &CMainFrame::OnUpdateAvailable)
+#if defined(MPT_ENABLE_UPDATE)
+	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_START,    &CMainFrame::OnUpdateCheckStart)
+	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_PROGRESS, &CMainFrame::OnUpdateCheckProgress)
+	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_CANCELED, &CMainFrame::OnUpdateCheckCanceled)
+	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_FAILURE,  &CMainFrame::OnUpdateCheckFailure)
+	ON_MESSAGE(MPT_WM_APP_UPDATECHECK_SUCCESS,  &CMainFrame::OnUpdateCheckSuccess)
+#endif // MPT_ENABLE_UPDATE
+	ON_COMMAND(ID_HELP_SHOWSETTINGSFOLDER,   &CMainFrame::OnShowSettingsFolder)
+	ON_COMMAND(ID_HELPSHOW,                  &CMainFrame::OnHelp)
+	ON_COMMAND(ID_MAINBAR_SHOW_OCTAVE,       &CMainFrame::OnToggleMainBarShowOctave)
+	ON_COMMAND(ID_MAINBAR_SHOW_TEMPO,        &CMainFrame::OnToggleMainBarShowTempo)
+	ON_COMMAND(ID_MAINBAR_SHOW_SPEED,        &CMainFrame::OnToggleMainBarShowSpeed)
+	ON_COMMAND(ID_MAINBAR_SHOW_ROWSPERBEAT,  &CMainFrame::OnToggleMainBarShowRowsPerBeat)
+	ON_COMMAND(ID_MAINBAR_SHOW_GLOBALVOLUME, &CMainFrame::OnToggleMainBarShowGlobalVolume)
+	ON_COMMAND(ID_MAINBAR_SHOW_VUMETER,      &CMainFrame::OnToggleMainBarShowVUMeter)
+	ON_COMMAND(ID_TREEVIEW_ON_LEFT,          &CMainFrame::OnToggleTreeViewOnLeft)
+
+#ifdef MPT_ENABLE_PLAYBACK_TEST_MENU
+	ON_COMMAND(ID_CREATE_MIXERDUMP,  &CMainFrame::OnCreateMixerDump)
+	ON_COMMAND(ID_VERIFY_MIXERDUMP,  &CMainFrame::OnVerifyMixerDump)
+	ON_COMMAND(ID_CONVERT_MIXERDUMP, &CMainFrame::OnConvertMixerDumpToText)
+#endif // ENABLE_PLAYBACK_TEST_MENU
+
+	ON_COMMAND_RANGE(ID_FILE_OPENTEMPLATE, ID_FILE_OPENTEMPLATE_LASTINRANGE, &CMainFrame::OnOpenTemplateModule)
+	ON_COMMAND_RANGE(ID_EXAMPLE_MODULES, ID_EXAMPLE_MODULES_LASTINRANGE, &CMainFrame::OnExampleSong)
+	ON_COMMAND_RANGE(ID_MRU_LIST_FIRST, ID_MRU_LIST_LAST, &CMainFrame::OnOpenMRUItem)
+	
+	ON_UPDATE_COMMAND_UI(ID_MRU_LIST_FIRST,  &CMainFrame::OnUpdateMRUItem)
+	ON_UPDATE_COMMAND_UI(ID_MIDI_RECORD,     &CMainFrame::OnUpdateMidiRecord)
+	ON_UPDATE_COMMAND_UI(ID_INDICATOR_TIME,  &CMainFrame::OnUpdateTime)
+	ON_UPDATE_COMMAND_UI(ID_INDICATOR_USER,  &CMainFrame::OnUpdateUser)
+	ON_UPDATE_COMMAND_UI(ID_INDICATOR_INFO,  &CMainFrame::OnUpdateInfo)
+	ON_UPDATE_COMMAND_UI(ID_INDICATOR_XINFO, &CMainFrame::OnUpdateXInfo)
+	ON_UPDATE_COMMAND_UI(IDD_TREEVIEW,       &CMainFrame::OnUpdateControlBarMenu)
+	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
 // Globals
 OptionsPage CMainFrame::m_nLastOptionsPage = OPTIONS_PAGE_DEFAULT;
-HHOOK CMainFrame::ghKbdHook = NULL;
+HHOOK CMainFrame::g_focusHook = nullptr;
 
 // GDI
-HICON CMainFrame::m_hIcon = NULL;
-HFONT CMainFrame::m_hGUIFont = NULL;
-HFONT CMainFrame::m_hFixedFont = NULL;
-HPEN CMainFrame::penDarkGray = NULL;
-HPEN CMainFrame::penGray99 = NULL;
-HPEN CMainFrame::penHalfDarkGray = NULL;
+HICON CMainFrame::m_hIcon = nullptr;
+CFont CMainFrame::m_hGUIFont;
+HPEN CMainFrame::penDarkGray = nullptr;
+HPEN CMainFrame::penGray99 = nullptr;
+HPEN CMainFrame::penHalfDarkGray = nullptr;
 
-HCURSOR CMainFrame::curDragging = NULL;
-HCURSOR CMainFrame::curArrow = NULL;
-HCURSOR CMainFrame::curNoDrop = NULL;
-HCURSOR CMainFrame::curNoDrop2 = NULL;
-HCURSOR CMainFrame::curVSplit = NULL;
+HCURSOR CMainFrame::curDragging = nullptr;
+HCURSOR CMainFrame::curArrow = nullptr;
+HCURSOR CMainFrame::curNoDrop = nullptr;
+HCURSOR CMainFrame::curNoDrop2 = nullptr;
+HCURSOR CMainFrame::curVSplit = nullptr;
 MODPLUGDIB *CMainFrame::bmpNotes = nullptr;
-COLORREF CMainFrame::gcolrefVuMeter[NUM_VUMETER_PENS*2];
+COLORREF CMainFrame::gcolrefVuMeter[NUM_VUMETER_PENS * 2];
 
-CInputHandler *CMainFrame::m_InputHandler = nullptr;
-
-static UINT indicators[] =
+static constexpr UINT StatusBarIndicators[] =
 {
-	ID_SEPARATOR,			// status line indicator
+	ID_SEPARATOR,  // status line indicator
 	ID_INDICATOR_XINFO,
 	ID_INDICATOR_INFO,
 	ID_INDICATOR_USER,
@@ -175,15 +197,14 @@ static UINT indicators[] =
 CMainFrame::CMainFrame()
 	: SoundDevice::CallbackBufferHandler<DithersOpenMPT>(theApp.PRNG())
 	, m_SoundDeviceFillBufferCriticalSection(CriticalSection::InitialState::Unlocked)
+	, m_InputHandler{this}
 {
 	m_szUserText[0] = 0;
 	m_szInfoText[0] = 0;
 	m_szXInfoText[0]= 0;
 
+	InitCommonControls();
 	MemsetZero(gcolrefVuMeter);
-
-	m_InputHandler = new CInputHandler(this);
-
 }
 
 
@@ -220,11 +241,11 @@ void CMainFrame::Initialize()
 	}
 
 	// Setup timer
-	OnUpdateUser(NULL);
-	m_nTimer = SetTimer(TIMERID_GUI, MPTTIMER_PERIOD, NULL);
+	OnUpdateUser(nullptr);
+	m_nTimer = SetTimer(TIMERID_GUI, MPTTIMER_PERIOD, nullptr);
 
 	// Setup Keyboard Hook
-	ghKbdHook = SetWindowsHookEx(WH_KEYBOARD, KeyboardProc, AfxGetInstanceHandle(), GetCurrentThreadId());
+	g_focusHook = SetWindowsHookEx(WH_CBT, FocusChangeProc, AfxGetInstanceHandle(), GetCurrentThreadId());
 
 	// Update the tree
 	m_wndTree.Init();
@@ -232,13 +253,35 @@ void CMainFrame::Initialize()
 	CreateExampleModulesMenu();
 	CreateTemplateModulesMenu();
 	UpdateMRUList();
+
+	auto [toolbarMenu, toolbarMenuStartPos] = FindMenuItemByCommand(*GetMenu(), ID_VIEW_TOOLBAR);
+	MPT_ASSERT(toolbarMenu);
+	if(toolbarMenu)
+	{
+		toolbarMenu->DeleteMenu(toolbarMenuStartPos, MF_BYPOSITION);
+		AddToolBarMenuEntries(*toolbarMenu);
+	}
+
+	m_InputHandler->UpdateMainMenu();
+
+	LoadMetronomeSamples();
+
+#ifdef MPT_ENABLE_PLAYBACK_TEST_MENU
+	CMenu debugMenu;
+	debugMenu.CreatePopupMenu();
+	debugMenu.AppendMenu(MF_STRING, ID_CREATE_MIXERDUMP, _T("Create Mixer Dump for &File(s)..."));
+	debugMenu.AppendMenu(MF_STRING, ID_VERIFY_MIXERDUMP, _T("&Verify File(s)..."));
+	debugMenu.AppendMenu(MF_STRING, ID_CONVERT_MIXERDUMP, _T("Convert Mixer Dump to &TSV..."));
+	GetMenu()->AppendMenu(MF_STRING | MF_POPUP, reinterpret_cast<UINT_PTR>(debugMenu.Detach()), _T("Debug"));
+#endif  // ENABLE_PLAYBACK_TEST_MENU
 }
 
 
 CMainFrame::~CMainFrame()
 {
-	delete m_InputHandler;
 	CChannelManagerDlg::DestroySharedInstance();
+	m_metronomeMeasure.FreeSample();
+	m_metronomeBeat.FreeSample();
 }
 
 
@@ -249,27 +292,10 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	// Load resources
 	m_hIcon = theApp.LoadIcon(IDR_MAINFRAME);
 
-	// Toolbar and other icons
-	CDC *dc = GetDC();
-	const double scaling = Util::GetDPIx(m_hWnd) / 96.0;
-	static constexpr int miscIconsInvert[] = {IMAGE_PATTERNS, IMAGE_OPLINSTRACTIVE, IMAGE_OPLINSTRMUTE};
-	static constexpr int patternIconsInvert[] = {TIMAGE_PREVIEW, TIMAGE_MACROEDITOR, TIMAGE_PATTERN_OVERFLOWPASTE, TIMAGE_PATTERN_DETAIL_LO, TIMAGE_PATTERN_DETAIL_MED, TIMAGE_PATTERN_DETAIL_HI, TIMAGE_PATTERN_PLUGINS, TIMAGE_SAMPLE_UNSIGN};
-	static constexpr int envelopeIconsInvert[] = {IIMAGE_CHECKED, IIMAGE_VOLSWITCH, IIMAGE_PANSWITCH, IIMAGE_PITCHSWITCH, IIMAGE_FILTERSWITCH, IIMAGE_NOPITCHSWITCH, IIMAGE_NOFILTERSWITCH};
-	m_MiscIcons.Create(IDB_IMAGELIST, 16, 16, IMGLIST_NUMIMAGES, 1, dc, scaling, false, miscIconsInvert);
-	m_MiscIconsDisabled.Create(IDB_IMAGELIST, 16, 16, IMGLIST_NUMIMAGES, 1, dc, scaling, true, miscIconsInvert);
-	m_PatternIcons.Create(IDB_PATTERNS, 16, 16, PATTERNIMG_NUMIMAGES, 1, dc, scaling, false, patternIconsInvert);
-	m_PatternIconsDisabled.Create(IDB_PATTERNS, 16, 16, PATTERNIMG_NUMIMAGES, 1, dc, scaling, true, patternIconsInvert);
-	m_EnvelopeIcons.Create(IDB_ENVTOOLBAR, 20, 18, ENVIMG_NUMIMAGES, 1, dc, scaling, false, envelopeIconsInvert);
-	m_SampleIcons.Create(IDB_SMPTOOLBAR, 20, 18, SAMPLEIMG_NUMIMAGES, 1, dc, scaling, false);
-	ReleaseDC(dc);
-
-	NONCLIENTMETRICS metrics;
-	metrics.cbSize = sizeof(metrics);
-	SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0);
-	m_hGUIFont = CreateFontIndirect(&metrics.lfMessageFont);
+	RecreateImageLists();
 
 	penDarkGray = ::CreatePen(PS_SOLID, 0, GetSysColor(COLOR_BTNSHADOW));
-	penGray99 = ::CreatePen(PS_SOLID,0, RGB(0x99, 0x99, 0x99));
+	penGray99 = ::CreatePen(PS_SOLID, 0, RGB(0x99, 0x99, 0x99));
 	penHalfDarkGray = ::CreatePen(PS_DOT, 0, GetSysColor(COLOR_BTNSHADOW));
 
 	// Cursors
@@ -278,15 +304,16 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	curNoDrop = theApp.LoadStandardCursor(IDC_NO);
 	curNoDrop2 = theApp.LoadCursor(IDC_NODRAG);
 	curVSplit = theApp.LoadCursor(AFX_IDC_HSPLITBAR);
-	// bitmaps
+
+	// Pattern note bitmap
 	bmpNotes = LoadDib(MAKEINTRESOURCE(IDB_PATTERNVIEW));
 	// Toolbars
 	EnableDocking(CBRS_ALIGN_ANY);
 	if (!m_wndToolBar.Create(this)) return -1;
 	if (!m_wndStatusBar.Create(this)) return -1;
-	if (!m_wndTree.Create(this, IDD_TREEVIEW, CBRS_LEFT|CBRS_BORDER_RIGHT, IDD_TREEVIEW)) return -1;
-	m_wndStatusBar.SetIndicators(indicators, mpt::saturate_cast<int>(std::size(indicators)));
-	m_wndStatusBar.SetPaneInfo(0, ID_SEPARATOR, SBPS_STRETCH, 256);
+	if (!m_wndTree.Create(this, IDD_TREEVIEW, TrackerSettings::Instance().treeViewOnLeft ? CBRS_LEFT : CBRS_RIGHT, IDD_TREEVIEW)) return -1;
+	m_wndStatusBar.SetIndicators(StatusBarIndicators, static_cast<int>(std::size(StatusBarIndicators)));
+	SetupStatusBarSizes();
 	m_wndToolBar.Init(this);
 	m_wndTree.RecalcLayout();
 
@@ -299,18 +326,73 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 
 	UpdateColors();
 
-	if(TrackerSettings::Instance().m_dwMidiSetup & MIDISETUP_ENABLE_RECORD_DEFAULT) midiOpenDevice(false);
+	if(TrackerSettings::Instance().midiSetup & MidiSetup::EnableMidiInOnStartup)
+		midiOpenDevice(false);
 
 #if MPT_COMPILER_MSVC
 #pragma warning(push)
 #pragma warning(disable:6387) // '_Param_(2)' could be '0':  this does not adhere to the specification for the function 'HtmlHelpW'
 #endif
-	::HtmlHelp(m_hWnd, nullptr, HH_INITIALIZE, reinterpret_cast<DWORD_PTR>(&helpCookie));
+	::HtmlHelp(m_hWnd, nullptr, HH_INITIALIZE, reinterpret_cast<DWORD_PTR>(&m_helpCookie));
 #if MPT_COMPILER_MSVC
 #pragma warning(pop)
 #endif
 
 	return 0;
+}
+
+
+LRESULT CMainFrame::OnDPIChanged(WPARAM, LPARAM suggestedRect)
+{
+	// Default() doesn't appear to do the right thing?
+	const auto &rect = *reinterpret_cast<const CRect *>(suggestedRect);
+	SetWindowPos(nullptr, rect.left, rect.top, rect.Width(), rect.Height(), SWP_NOZORDER | SWP_NOACTIVATE);
+	auto result = Default();
+
+	RecreateImageLists();
+	SetupStatusBarSizes();
+	m_wndTree.RecalcLayout();
+	return result;
+}
+
+
+void CMainFrame::RecreateImageLists()
+{
+	// Toolbar and other icons
+	CDC *dc = GetDC();
+	const double scaling = HighDPISupport::GetDpiForWindow(m_hWnd) / 96.0;
+	static constexpr int miscIconsInvert[] = {IMAGE_PATTERNS, IMAGE_OPLINSTRACTIVE, IMAGE_OPLINSTRMUTE};
+	static constexpr int patternIconsInvert[] = {TIMAGE_PREVIEW, TIMAGE_MACROEDITOR, TIMAGE_PATTERN_OVERFLOWPASTE, TIMAGE_PATTERN_PLUGINS, TIMAGE_SAMPLE_UNSIGN};
+	static constexpr int envelopeIconsInvert[] = {IIMAGE_CHECKED, IIMAGE_VOLSWITCH, IIMAGE_PANSWITCH, IIMAGE_PITCHSWITCH, IIMAGE_FILTERSWITCH, IIMAGE_NOPITCHSWITCH, IIMAGE_NOFILTERSWITCH};
+	m_MiscIcons.Create(IDB_IMAGELIST, 16, 16, IMGLIST_NUMIMAGES, 1, dc, scaling, false, miscIconsInvert);
+	m_MiscIconsDisabled.Create(IDB_IMAGELIST, 16, 16, IMGLIST_NUMIMAGES, 1, dc, scaling, true, miscIconsInvert);
+	m_PatternIcons.Create(IDB_PATTERNS, 16, 16, PATTERNIMG_NUMIMAGES, 1, dc, scaling, false, patternIconsInvert);
+	m_PatternIconsDisabled.Create(IDB_PATTERNS, 16, 16, PATTERNIMG_NUMIMAGES, 1, dc, scaling, true, patternIconsInvert);
+	m_EnvelopeIcons.Create(IDB_ENVTOOLBAR, 20, 18, ENVIMG_NUMIMAGES, 1, dc, scaling, false, envelopeIconsInvert);
+	m_SampleIcons.Create(IDB_SMPTOOLBAR, 20, 18, SAMPLEIMG_NUMIMAGES, 1, dc, scaling, false);
+	ReleaseDC(dc);
+
+	HighDPISupport::CreateGUIFont(m_hGUIFont, m_hWnd);
+}
+
+
+void CMainFrame::SetupStatusBarSizes()
+{
+	m_wndStatusBar.SetPaneInfo(0, ID_SEPARATOR, SBPS_STRETCH, HighDPISupport::ScalePixels(256, m_hWnd));
+
+	CDC *dc = GetDC();
+	MPT_ASSERT(m_hGUIFont.m_hObject);
+	auto oldFont = dc->SelectObject(m_hGUIFont);  // GetFont() seem to give us the font for the previous DPI right after the DPI change
+	for(size_t i = 0; i < std::size(StatusBarIndicators); i++)
+	{
+		if(StatusBarIndicators[i] == ID_SEPARATOR)
+			continue;
+		CString text;
+		VERIFY(text.LoadString(StatusBarIndicators[i]));
+		m_wndStatusBar.SetPaneInfo(static_cast<int>(i), StatusBarIndicators[i], SBPS_NORMAL, dc->GetTextExtent(text).cx);
+	}
+	dc->SelectObject(oldFont);
+	ReleaseDC(dc);
 }
 
 
@@ -326,24 +408,24 @@ BOOL CMainFrame::DestroyWindow()
 #pragma warning(push)
 #pragma warning(disable:6387) // '_Param_(2)' could be '0':  this does not adhere to the specification for the function 'HtmlHelpW'
 #endif
-	::HtmlHelp(m_hWnd, nullptr, HH_UNINITIALIZE, reinterpret_cast<DWORD_PTR>(&helpCookie));
+	::HtmlHelp(m_hWnd, nullptr, HH_UNINITIALIZE, reinterpret_cast<DWORD_PTR>(&m_helpCookie));
 #if MPT_COMPILER_MSVC
 #pragma warning(pop)
 #endif
 
-	// Uninstall Keyboard Hook
-	if (ghKbdHook)
+	if(g_focusHook)
 	{
-		UnhookWindowsHookEx(ghKbdHook);
-		ghKbdHook = NULL;
+		UnhookWindowsHookEx(g_focusHook);
+		g_focusHook = nullptr;
 	}
 	// Kill Timer
-	if (m_nTimer)
+	if(m_nTimer)
 	{
 		KillTimer(m_nTimer);
 		m_nTimer = 0;
 	}
-	if (shMidiIn) midiCloseDevice();
+	if(shMidiIn)
+		midiCloseDevice();
 	// Delete bitmaps
 	delete bmpNotes;
 	bmpNotes = nullptr;
@@ -351,11 +433,11 @@ BOOL CMainFrame::DestroyWindow()
 	PatternFont::DeleteFontData();
 
 	// Kill GDI Objects
+	m_hGUIFont.DeleteObject();
 #define DeleteGDIObject(h) ::DeleteObject(h); h = NULL;
 	DeleteGDIObject(penDarkGray);
-	DeleteGDIObject(m_hGUIFont);
-	DeleteGDIObject(m_hFixedFont);
 	DeleteGDIObject(penGray99);
+	DeleteGDIObject(penHalfDarkGray);
 #undef DeleteGDIObject
 
 	return CMDIFrameWnd::DestroyWindow();
@@ -365,7 +447,7 @@ BOOL CMainFrame::DestroyWindow()
 void CMainFrame::OnClose()
 {
 	MPT_TRACE_SCOPE();
-	if(!(TrackerSettings::Instance().m_dwPatternSetup & PATTERN_NOCLOSEDIALOG))
+	if(!(TrackerSettings::Instance().patternSetup & PatternSetup::NoCustomCloseDialog))
 	{
 		// Show modified documents window
 		CloseMainDialog dlg;
@@ -375,11 +457,15 @@ void CMainFrame::OnClose()
 		}
 	}
 
+#if defined(MPT_ENABLE_UPDATE)
+	m_cancelUpdateCheck = true;
+#endif // MPT_ENABLE_UPDATE
+
 	CChildFrame *pMDIActive = (CChildFrame *)MDIGetActive();
 
 	BeginWaitCursor();
 	if (IsPlaying()) PauseMod();
-	if (pMDIActive) pMDIActive->SavePosition(TRUE);
+	if (pMDIActive) pMDIActive->SavePosition(true);
 
 	if(gpSoundDevice)
 	{
@@ -395,10 +481,14 @@ void CMainFrame::OnClose()
 	AddControlBar(&m_wndStatusBar); // Restore statusbar to mainframe.
 	TrackerSettings::Instance().SaveSettings();
 
-	if(m_InputHandler && m_InputHandler->m_activeCommandSet)
+	if(m_InputHandler->m_activeCommandSet)
 	{
 		m_InputHandler->m_activeCommandSet->SaveFile(TrackerSettings::Instance().m_szKbdFile);
 	}
+
+#if defined(MPT_ENABLE_UPDATE)
+	CUpdateCheck::WaitForUpdateCheckFinished();
+#endif // MPT_ENABLE_UPDATE
 
 	EndWaitCursor();
 	CMDIFrameWnd::OnClose();
@@ -423,6 +513,9 @@ void CMainFrame::OnDropFiles(HDROP hDropInfo)
 {
 	const UINT nFiles = ::DragQueryFileW(hDropInfo, (UINT)-1, NULL, 0);
 	CMainFrame::GetMainFrame()->SetForegroundWindow();
+#ifdef MPT_BUILD_DEBUG
+	const bool scanAll = CInputHandler::GetModifierMask().test_all(ModCtrl | ModShift | ModAlt);
+#endif
 	for(UINT f = 0; f < nFiles; f++)
 	{
 		UINT size = ::DragQueryFile(hDropInfo, f, nullptr, 0) + 1;
@@ -432,7 +525,7 @@ void CMainFrame::OnDropFiles(HDROP hDropInfo)
 			const mpt::PathString file = mpt::PathString::FromNative(fileName.data());
 #ifdef MPT_BUILD_DEBUG
 			// Debug Hack: Quickly scan a folder containing module files (without running out of window handles ;)
-			if(m_InputHandler->CtrlPressed() && m_InputHandler->AltPressed() && m_InputHandler->ShiftPressed() && mpt::native_fs{}.is_directory(file))
+			if(scanAll && mpt::native_fs{}.is_directory(file))
 			{
 				FolderScanner scanner(file, FolderScanner::kOnlyFiles | FolderScanner::kFindInSubDirectories);
 				mpt::PathString scanName;
@@ -442,6 +535,7 @@ void CMainFrame::OnDropFiles(HDROP hDropInfo)
 					mpt::IO::InputFile inputFile(scanName, TrackerSettings::Instance().MiscCacheCompleteFileBeforeLoading);
 					if(!inputFile.IsValid())
 						continue;
+					SetHelpText(scanName.GetFilename().ToCString());
 					auto sndFile = std::make_unique<CSoundFile>();
 					MPT_LOG_GLOBAL(LogDebug, "info", U_("Loading ") + scanName.ToUnicode());
 					if(!sndFile->Create(GetFileReader(inputFile), CSoundFile::loadCompleteModule, nullptr))
@@ -451,8 +545,21 @@ void CMainFrame::OnDropFiles(HDROP hDropInfo)
 					}
 					total++;
 				}
+				SetHelpText(_T(""));
 				Reporting::Information(MPT_UFORMAT("Scanned {} files, {} failed")(total, failed));
-				break;
+				continue;
+			} else if(scanAll)
+			{
+				mpt::IO::InputFile inputFile(file, TrackerSettings::Instance().MiscCacheCompleteFileBeforeLoading);
+				if(!inputFile.IsValid())
+					continue;
+				auto sndFile = std::make_unique<CSoundFile>();
+				SetHelpText(file.GetFilename().ToCString());
+				MPT_LOG_GLOBAL(LogDebug, "info", U_("Loading ") + file.ToUnicode());
+				if(!sndFile->Create(GetFileReader(inputFile), CSoundFile::loadCompleteModule, nullptr))
+					MPT_LOG_GLOBAL(LogDebug, "info", U_("FAILED: ") + file.ToUnicode());
+				SetHelpText(_T(""));
+				continue;
 			}
 #endif
 			theApp.OpenDocumentFile(file.ToCString());
@@ -462,99 +569,99 @@ void CMainFrame::OnDropFiles(HDROP hDropInfo)
 }
 
 
-void CMainFrame::OnActivateApp(BOOL active, DWORD /*threadID*/)
+void CMainFrame::OnActivateApp(BOOL active, DWORD threadID)
 {
-	// Ensure modifiers are reset when we leave the window (e.g. Alt-Tab)
-	if(!active)
-		m_InputHandler->SetModifierMask(ModNone);
+	if(active)
+		IPCWindow::UpdateLastUsed();
+	CMDIFrameWnd::OnActivateApp(active, threadID);
 }
 
 
-LRESULT CALLBACK CMainFrame::KeyboardProc(int code, WPARAM wParam, LPARAM lParam)
+void CMainFrame::OnActivate(UINT nState, CWnd *pWndOther, BOOL bMinimized)
 {
-
-	static bool s_KeyboardHookReentryFlag = false; // work-around for https://bugs.openmpt.org/view.php?id=713
-
-	if(mpt::OS::Windows::IsWine()) // work-around for https://bugs.openmpt.org/view.php?id=713
-	{
-		// TODO: Properly fix this in same way or another.
-		if(code < 0)
-		{
-			return CallNextHookEx(ghKbdHook, code, wParam, lParam); // required by spec
-		}
-		if(theApp.InGuiThread())
-		{
-			if(s_KeyboardHookReentryFlag)
-			{
-				// Exit early without calling our hook when re-entering.
-				// We still need to call other hooks though.
-				return CallNextHookEx(ghKbdHook, code, wParam, lParam); // required by spec
-			}
-			s_KeyboardHookReentryFlag = true;
-		}
-	}
-
-	bool skipFurtherProcessing = false;
-
-	if(code >= 0)
-	{
-		// Check if textbox has focus
-		const bool handledByTextBox = m_InputHandler->IsKeyPressHandledByTextBox(static_cast<DWORD>(wParam), ::GetFocus());
-		if(!handledByTextBox && m_InputHandler->GeneralKeyEvent(kCtxAllContexts, code, wParam, lParam) != kcNull)
-		{
-			if(wParam != VK_ESCAPE)
-			{
-				// We've handled the keypress. No need to take it further.
-				// Unless it was esc, in which case we need it to close Windows
-				// (there might be other special cases, we'll see.. )
-				skipFurtherProcessing = true;
-			}
-		}
-	}
-
-	LRESULT result = 0;
-	if(skipFurtherProcessing)
-	{
-		result = -1;
-	} else
-	{
-		result = CallNextHookEx(ghKbdHook, code, wParam, lParam);
-	}
-
-	if(mpt::OS::Windows::IsWine()) // work-around for https://bugs.openmpt.org/view.php?id=713
-	{
-		if(theApp.InGuiThread())
-		{
-			s_KeyboardHookReentryFlag = false;
-		}
-	}
-
-	return result;
+	CMDIFrameWnd::OnActivate(nState, pWndOther, bMinimized);
+	// Avoid keyboard focus being trapped on MDI client area
+	if(m_quickStartDlg && m_quickStartDlg->m_hWnd && nState != WA_INACTIVE && ::GetFocus() == m_hWndMDIClient)
+		m_quickStartDlg->SetFocus();
 }
 
 
-BOOL CMainFrame::PreTranslateMessage(MSG* pMsg)
+LRESULT CALLBACK CMainFrame::FocusChangeProc(int code, WPARAM wParam, LPARAM lParam)
 {
-	if((pMsg->message == WM_RBUTTONDOWN) || (pMsg->message == WM_NCRBUTTONDOWN))
-	{
-		CWnd* pWnd = CWnd::FromHandlePermanent(pMsg->hwnd);
-		CControlBar* pBar = NULL;
-		HWND hwnd = (pWnd) ? pWnd->m_hWnd : NULL;
+	// Hook to keep track of last focussed GUI item. This solves various focus issues when switching between
+	// CModControlDlg / CModScrollView via keyboard shortcuts, or when switching to another application and back.
+	// See https://bugs.openmpt.org/view.php?id=1795 / https://bugs.openmpt.org/view.php?id=1799 / https://bugs.openmpt.org/view.php?id=1800
+	if(code != HCBT_SETFOCUS || !wParam || !lParam)
+		return CallNextHookEx(g_focusHook, code, wParam, lParam);
 
-		if ((hwnd) && (pMsg->message == WM_RBUTTONDOWN)) pBar = DYNAMIC_DOWNCAST(CControlBar, pWnd);
-		if ((pBar != NULL) || ((pMsg->message == WM_NCRBUTTONDOWN) && (pMsg->wParam == HTMENU)))
+	const HWND mainWnd = CMainFrame::GetMainFrame()->GetSafeHwnd();
+	HWND lostFocusWnd = reinterpret_cast<HWND>(lParam), gainFocusWnd = reinterpret_cast<HWND>(wParam);
+	CModControlDlg *parentCtrl = nullptr;
+	CModScrollView *parentScroll = nullptr;
+	do
+	{
+		// Does the window that lost focus belong to the upper or lower half of a module view?
+		auto wnd = CWnd::FromHandlePermanent(lostFocusWnd);
+		if(parentCtrl = dynamic_cast<CModControlDlg *>(wnd); parentCtrl != nullptr)
+			break;
+		else if(parentScroll = dynamic_cast<CModScrollView *>(wnd); parentScroll != nullptr)
+			break;
+
+		lostFocusWnd = ::GetParent(lostFocusWnd);
+	} while(lostFocusWnd && lostFocusWnd != mainWnd);
+
+	if(parentCtrl || parentScroll)
+	{
+		// Focus was lost inside an MDI view. Check if the new focus item inside the same view.
+		// If both are part of the same view, store the new focus item, otherwise the old one.
+		bool sameParent = false;
+		do
 		{
-			CMenu Menu;
+			if((parentCtrl && gainFocusWnd == parentCtrl->m_hWnd) || (parentScroll && gainFocusWnd == parentScroll->m_hWnd))
+			{
+				sameParent = true;
+				break;
+			}
+
+			gainFocusWnd = ::GetParent(gainFocusWnd);
+		} while(gainFocusWnd && gainFocusWnd != mainWnd);
+
+		HWND lastFocus = sameParent ? reinterpret_cast<HWND>(wParam) : reinterpret_cast<HWND>(lParam);
+		if(parentCtrl && parentCtrl->m_hWnd != lastFocus)
+			parentCtrl->SaveLastFocusItem(lastFocus);
+		else if(parentScroll && parentScroll->m_hWnd != lastFocus)
+			parentScroll->SaveLastFocusItem(lastFocus);
+	}
+
+	return CallNextHookEx(g_focusHook, code, wParam, lParam);
+}
+
+
+BOOL CMainFrame::PreTranslateMessage(MSG *pMsg)
+{
+	// Right-click menu to disable/enable tree view and main toolbar when right-clicking on either the menu strip or main toolbar
+	if((pMsg->message == WM_RBUTTONUP) || (pMsg->message == WM_NCRBUTTONUP))
+	{
+		CControlBar *pBar = nullptr;
+		if(CWnd *pWnd = CWnd::FromHandlePermanent(pMsg->hwnd); pWnd && (pMsg->message == WM_RBUTTONUP))
+			pBar = dynamic_cast<CControlBar *>(pWnd);
+		if(pBar != nullptr || (pMsg->message == WM_NCRBUTTONUP && pMsg->wParam == HTMENU))
+		{
 			CPoint pt;
-
 			GetCursorPos(&pt);
-			if (Menu.LoadMenu(IDR_TOOLBARS))
-			{
-				CMenu* pSubMenu = Menu.GetSubMenu(0);
-				if (pSubMenu!=NULL) pSubMenu->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON,pt.x,pt.y,this);
-			}
+			ShowToolbarMenu(pt);
 		}
 	}
+
+	// We handle keypresses before Windows has a chance to handle them (for alt etc..)
+	if(pMsg->message == WM_KEYDOWN || pMsg->message == WM_KEYUP || pMsg->message == WM_SYSKEYUP || pMsg->message == WM_SYSKEYDOWN)
+	{
+		CInputHandler *ih = CMainFrame::GetInputHandler();
+		const auto event = ih->Translate(*pMsg);
+		if(ih->KeyEvent(kCtxAllContexts, event) != kcNull)
+			return TRUE;  // Mapped to a command, no need to pass message on.
+	}
+
 	return CMDIFrameWnd::PreTranslateMessage(pMsg);
 }
 
@@ -587,6 +694,17 @@ void CMainFrame::OnUpdateFrameTitle(BOOL bAddToTitle)
 				lpstrTitle = strTitle;
 		}
 		UpdateFrameTitleForDocument(lpstrTitle);
+	}
+}
+
+
+void CMainFrame::RecalcLayout(BOOL notify)
+{
+	CMDIFrameWnd::RecalcLayout(notify);
+	if(m_quickStartDlg && m_quickStartDlg->m_hWnd)
+	{
+		m_quickStartDlg->UpdateHeight();
+		m_quickStartDlg->CenterWindow();
 	}
 }
 
@@ -788,12 +906,12 @@ void CMainFrame::SoundCallbackLockedCallback(SoundDevice::CallbackBuffer<Dithers
 	OPENMPT_PROFILE_FUNCTION(Profiler::Audio);
 	BufferInputWrapper source(buffer);
 	BufferOutputWrapper target(buffer);
-	MPT_ASSERT(buffer.GetNumFrames() <= std::numeric_limits<CSoundFile::samplecount_t>::max());
-	CSoundFile::samplecount_t framesToRender = static_cast<CSoundFile::samplecount_t>(buffer.GetNumFrames());
+	MPT_ASSERT(buffer.GetNumFrames() <= std::numeric_limits<samplecount_t>::max());
+	samplecount_t framesToRender = static_cast<samplecount_t>(buffer.GetNumFrames());
 	MPT_ASSERT(framesToRender > 0);
-	CSoundFile::samplecount_t renderedFrames = m_pSndFile->Read(framesToRender, target, source, std::ref(m_VUMeterOutput), std::ref(m_VUMeterInput));
+	samplecount_t renderedFrames = m_pSndFile->Read(framesToRender, target, source, std::ref(m_VUMeterOutput), std::ref(m_VUMeterInput));
 	MPT_ASSERT(renderedFrames <= framesToRender);
-	[[maybe_unused]] CSoundFile::samplecount_t remainingFrames = framesToRender - renderedFrames;
+	[[maybe_unused]] samplecount_t remainingFrames = framesToRender - renderedFrames;
 	MPT_ASSERT(remainingFrames >= 0); // remaining buffer is filled with silence automatically
 }
 
@@ -803,8 +921,8 @@ void CMainFrame::SoundCallbackLockedProcessDone(SoundDevice::TimeInfo timeInfo)
 	MPT_TRACE_SCOPE();
 	MPT_ASSERT(InAudioThread());
 	OPENMPT_PROFILE_FUNCTION(Profiler::Notify);
-	MPT_ASSERT((timeInfo.RenderStreamPositionAfter.Frames - timeInfo.RenderStreamPositionBefore.Frames) < std::numeric_limits<CSoundFile::samplecount_t>::max());
-	CSoundFile::samplecount_t framesRendered = static_cast<CSoundFile::samplecount_t>(timeInfo.RenderStreamPositionAfter.Frames - timeInfo.RenderStreamPositionBefore.Frames);
+	MPT_ASSERT((timeInfo.RenderStreamPositionAfter.Frames - timeInfo.RenderStreamPositionBefore.Frames) < std::numeric_limits<samplecount_t>::max());
+	samplecount_t framesRendered = static_cast<samplecount_t>(timeInfo.RenderStreamPositionAfter.Frames - timeInfo.RenderStreamPositionBefore.Frames);
 	int64 streamPosition = timeInfo.RenderStreamPositionAfter.Frames;
 	DoNotification(framesRendered, streamPosition);
 	//m_pSndFile->m_TimingInfo = TimingInfo(); // reset
@@ -1017,10 +1135,10 @@ bool CMainFrame::DoNotification(DWORD dwSamplesRead, int64 streamPosition)
 	FlagSet<Notification::Type> notifyType(Notification::Default);
 	Notification::Item notifyItem = 0;
 
-	if(m_pSndFile->m_pModDoc)
+	if(CModDoc *modDoc = m_pSndFile->GetpModDoc())
 	{
-		notifyType = m_pSndFile->m_pModDoc->GetNotificationType();
-		notifyItem = m_pSndFile->m_pModDoc->GetNotificationItem();
+		notifyType = modDoc->GetNotificationType();
+		notifyItem = modDoc->GetNotificationItem();
 	}
 
 	// Add an entry to the notification history
@@ -1029,7 +1147,7 @@ bool CMainFrame::DoNotification(DWORD dwSamplesRead, int64 streamPosition)
 
 	m_pSndFile->ResetMixStat();
 
-	if(m_pSndFile->m_SongFlags[SONG_ENDREACHED]) notification.type.set(Notification::EOS);
+	if(m_pSndFile->m_PlayState.m_flags[SONG_ENDREACHED]) notification.type.set(Notification::EOS);
 
 	if(notifyType[Notification::Sample])
 	{
@@ -1040,7 +1158,7 @@ bool CMainFrame::DoNotification(DWORD dwSamplesRead, int64 streamPosition)
 			for(CHANNELINDEX k = 0; k < MAX_CHANNELS; k++)
 			{
 				const ModChannel &chn = m_pSndFile->m_PlayState.Chn[k];
-				if(chn.pModSample == &m_pSndFile->GetSample(smp) && chn.nLength != 0	// Corrent sample is set up on this channel
+				if(chn.pModSample == &m_pSndFile->GetSample(smp) && chn.nLength != 0	// Correct sample is set up on this channel
 					&& (!chn.dwFlags[CHN_NOTEFADE] || chn.nFadeOutVol))					// And it hasn't completely faded out yet, so it's still playing
 				{
 					notification.pos[k] = chn.position.GetInt();
@@ -1157,7 +1275,7 @@ void CMainFrame::UpdateDspEffects(CSoundFile &sndFile, bool reset)
 void CMainFrame::UpdateAudioParameters(CSoundFile &sndFile, bool reset)
 {
 	CriticalSection cs;
-	if (TrackerSettings::Instance().m_dwPatternSetup & PATTERN_MUTECHNMODE)
+	if (TrackerSettings::Instance().patternSetup & PatternSetup::IgnoreMutedChannels)
 		TrackerSettings::Instance().MixerFlags |= SNDMIX_MUTECHNMODE;
 	else
 		TrackerSettings::Instance().MixerFlags &= ~SNDMIX_MUTECHNMODE;
@@ -1337,7 +1455,7 @@ bool CMainFrame::PausePlayback()
 void CMainFrame::GenerateStopNotification()
 {
 	Notification mn(Notification::Stop);
-	SendMessage(WM_MOD_UPDATEPOSITION, 0, (LPARAM)&mn);
+	SendMessage(WM_MOD_UPDATEPOSITION, 0, reinterpret_cast<LPARAM>(&mn));
 }
 
 
@@ -1351,7 +1469,7 @@ void CMainFrame::UnsetPlaybackSoundFile()
 		{
 			m_wndTree.UpdatePlayPos(m_pSndFile->GetpModDoc(), nullptr);
 		}
-		m_pSndFile->m_SongFlags.reset(SONG_PAUSED);
+		m_pSndFile->m_PlayState.m_flags.reset(SONG_PAUSED);
 		if(m_pSndFile == &m_WaveFile)
 		{
 			// Unload previewed instrument
@@ -1359,12 +1477,12 @@ void CMainFrame::UnsetPlaybackSoundFile()
 		} else
 		{
 			// Stop sample preview channels
-			for(CHANNELINDEX i = m_pSndFile->m_nChannels; i < MAX_CHANNELS; i++)
+			for(ModChannel &chn : m_pSndFile->m_PlayState.BackgroundChannels(*m_pSndFile))
 			{
-				if(m_pSndFile->m_PlayState.Chn[i].isPreviewNote)
+				if(chn.isPreviewNote)
 				{
-					m_pSndFile->m_PlayState.Chn[i].nLength = 0;
-					m_pSndFile->m_PlayState.Chn[i].position.Set(0);
+					chn.nLength = 0;
+					chn.position.Set(0);
 				}
 			}
 		}
@@ -1404,11 +1522,11 @@ bool CMainFrame::PlayMod(CModDoc *pModDoc)
 	SetPlaybackSoundFile(&sndFile);
 
 	const bool bPaused = m_pSndFile->IsPaused();
-	const bool bPatLoop = m_pSndFile->m_SongFlags[SONG_PATTERNLOOP];
+	const bool bPatLoop = m_pSndFile->m_PlayState.m_flags[SONG_PATTERNLOOP];
 
-	m_pSndFile->m_SongFlags.reset(SONG_FADINGSONG | SONG_ENDREACHED);
+	m_pSndFile->m_PlayState.m_flags.reset(SONG_FADINGSONG | SONG_ENDREACHED);
 
-	if(!bPatLoop && bPaused) sndFile.m_SongFlags.set(SONG_PAUSED);
+	if(!bPatLoop && bPaused) sndFile.m_PlayState.m_flags.set(SONG_PAUSED);
 	sndFile.SetRepeatCount((TrackerSettings::Instance().gbLoopSong) ? -1 : 0);
 
 	sndFile.InitPlayer(true);
@@ -1418,6 +1536,8 @@ bool CMainFrame::PlayMod(CModDoc *pModDoc)
 
 	m_VUMeterInput = VUMeter();
 	m_VUMeterOutput = VUMeter();
+
+	UpdateMetronomeSamples();
 
 	if(!StartPlayback())
 	{
@@ -1574,7 +1694,7 @@ bool CMainFrame::PlaySoundFile(const mpt::PathString &filename, ModCommand::NOTE
 				if(file.IsValid())
 				{
 					InitPreview();
-					m_WaveFile.m_SongFlags.set(SONG_PAUSED);
+					m_WaveFile.m_PlayState.m_flags.set(SONG_PAUSED);
 					// Avoid hanging audio while reading file - we have removed all sample and instrument references before,
 					// so it's safe to replace the sample / instrument now.
 					cs.Leave();
@@ -1619,7 +1739,8 @@ bool CMainFrame::PlaySoundFile(CSoundFile &sndFile, INSTRUMENTINDEX nInstrument,
 	{
 		CriticalSection cs;
 		InitPreview();
-		m_WaveFile.m_nType = sndFile.GetType();
+		m_WaveFile.ChangeModTypeTo(sndFile.GetType(), false);
+		m_WaveFile.m_playBehaviour = sndFile.m_playBehaviour;
 		if ((nInstrument) && (nInstrument <= sndFile.GetNumInstruments()))
 		{
 			m_WaveFile.m_nInstruments = 1;
@@ -1658,11 +1779,9 @@ bool CMainFrame::PlaySoundFile(CSoundFile &sndFile, INSTRUMENTINDEX nInstrument,
 void CMainFrame::InitPreview()
 {
 	m_WaveFile.Destroy();
-	m_WaveFile.Create(FileReader());
-	m_WaveFile.m_nDefaultTempo.Set(125);
-	m_WaveFile.m_nDefaultSpeed = 6;
-	m_WaveFile.m_nType = MOD_TYPE_MPT;
-	m_WaveFile.m_nChannels = 2;
+	m_WaveFile.Create(MOD_TYPE_MPT, 2);
+	m_WaveFile.Order().SetDefaultTempoInt(125);
+	m_WaveFile.Order().SetDefaultSpeed(6);
 	m_WaveFile.m_nInstruments = 1;
 	m_WaveFile.m_nTempoMode = TempoMode::Classic;
 	m_WaveFile.Order().assign(1, 0);
@@ -1682,12 +1801,12 @@ void CMainFrame::PreparePreview(ModCommand::NOTE note, int volume)
 		}
 		return;
 	}
-	m_WaveFile.m_SongFlags.reset(SONG_PAUSED);
+	m_WaveFile.m_PlayState.m_flags.reset(SONG_PAUSED);
 	m_WaveFile.SetRepeatCount(-1);
 	m_WaveFile.ResetPlayPos();
 
 	const CModDoc *activeDoc = GetActiveDoc();
-	if(activeDoc != nullptr && (TrackerSettings::Instance().m_dwPatternSetup & PATTERN_NOEXTRALOUD))
+	if(activeDoc != nullptr && (TrackerSettings::Instance().patternSetup & PatternSetup::NoLoudSamplePreview))
 	{
 		m_WaveFile.SetMixLevels(activeDoc->GetSoundFile().GetMixLevels());
 		m_WaveFile.m_nSamplePreAmp = activeDoc->GetSoundFile().m_nSamplePreAmp;
@@ -1710,9 +1829,10 @@ void CMainFrame::PreparePreview(ModCommand::NOTE note, int volume)
 			m[0].instr = 1;
 		}
 		// Infinite loop on second row
-		m[1 * 2].command = CMD_POSITIONJUMP;
-		m[1 * 2 + 1].command = CMD_PATTERNBREAK;
-		m[1 * 2 + 1].param = 1;
+		m = m_WaveFile.Patterns[0].GetRow(1);
+		m[0].command = CMD_POSITIONJUMP;
+		m[1].command = CMD_PATTERNBREAK;
+		m[1].param = 1;
 	}
 	m_WaveFile.InitPlayer(true);
 }
@@ -1748,14 +1868,14 @@ void CMainFrame::IdleHandlerSounddevice()
 }
 
 
-BOOL CMainFrame::ResetSoundCard()
+void CMainFrame::ResetSoundCard()
 {
 	MPT_TRACE_SCOPE();
-	return CMainFrame::SetupSoundCard(TrackerSettings::Instance().GetSoundDeviceSettings(TrackerSettings::Instance().GetSoundDeviceIdentifier()), TrackerSettings::Instance().GetSoundDeviceIdentifier(), TrackerSettings::Instance().m_SoundSettingsStopMode, true);
+	CMainFrame::SetupSoundCard(TrackerSettings::Instance().GetSoundDeviceSettings(TrackerSettings::Instance().GetSoundDeviceIdentifier()), TrackerSettings::Instance().GetSoundDeviceIdentifier(), TrackerSettings::Instance().m_SoundSettingsStopMode, true);
 }
 
 
-BOOL CMainFrame::SetupSoundCard(SoundDevice::Settings deviceSettings, SoundDevice::Identifier deviceIdentifier, SoundDeviceStopMode stoppedMode, bool forceReset)
+void CMainFrame::SetupSoundCard(SoundDevice::Settings deviceSettings, SoundDevice::Identifier deviceIdentifier, SoundDeviceStopMode stoppedMode, bool forceReset)
 {
 	MPT_TRACE_SCOPE();
 	if(forceReset
@@ -1803,21 +1923,20 @@ BOOL CMainFrame::SetupSoundCard(SoundDevice::Settings deviceSettings, SoundDevic
 		CriticalSection cs;
 		if(GetSoundFilePlaying()) UpdateAudioParameters(*GetSoundFilePlaying(), FALSE);
 	}
-	return TRUE;
 }
 
 
-BOOL CMainFrame::SetupPlayer()
+void CMainFrame::SetupPlayer()
 {
 	CriticalSection cs;
 	if(GetSoundFilePlaying()) UpdateAudioParameters(*GetSoundFilePlaying(), FALSE);
-	return TRUE;
 }
 
 
-BOOL CMainFrame::SetupMiscOptions()
+void CMainFrame::SetupMiscOptions()
 {
-	if (TrackerSettings::Instance().m_dwPatternSetup & PATTERN_MUTECHNMODE)
+	const FlagSet<PatternSetup> patternSetup = TrackerSettings::Instance().patternSetup;
+	if(patternSetup[PatternSetup::IgnoreMutedChannels])
 		TrackerSettings::Instance().MixerFlags |= SNDMIX_MUTECHNMODE;
 	else
 		TrackerSettings::Instance().MixerFlags &= ~SNDMIX_MUTECHNMODE;
@@ -1826,37 +1945,23 @@ BOOL CMainFrame::SetupMiscOptions()
 		if(GetSoundFilePlaying()) UpdateAudioParameters(*GetSoundFilePlaying());
 	}
 
-	m_wndToolBar.EnableFlatButtons(TrackerSettings::Instance().m_dwPatternSetup & PATTERN_FLATBUTTONS);
+	m_wndToolBar.EnableFlatButtons(patternSetup[PatternSetup::FlatToolbarButtons]);
 
 	UpdateTree(nullptr, UpdateHint().MPTOptions());
-	UpdateAllViews(UpdateHint().MPTOptions());
-	return true;
+	theApp.UpdateAllViews(UpdateHint().MPTOptions());
 }
 
 
-void CMainFrame::SetupMidi(DWORD d, UINT n)
+void CMainFrame::SetupMidi(FlagSet<MidiSetup> d, UINT n)
 {
 	bool deviceChanged = (TrackerSettings::Instance().m_nMidiDevice != n);
-	TrackerSettings::Instance().m_dwMidiSetup = d;
+	TrackerSettings::Instance().midiSetup = d;
 	TrackerSettings::Instance().SetMIDIDevice(n);
 	if(deviceChanged && shMidiIn)
 	{
 		// Device has changed, close the old one.
 		midiCloseDevice();
 		midiOpenDevice();
-	}
-}
-
-
-void CMainFrame::UpdateAllViews(UpdateHint hint, CObject *pHint)
-{
-	CModDocTemplate *pDocTmpl = theApp.GetModDocTemplate();
-	if (pDocTmpl)
-	{
-		for(auto &doc : *pDocTmpl)
-		{
-			doc->UpdateAllViews(nullptr, hint, pHint);
-		}
 	}
 }
 
@@ -1907,6 +2012,7 @@ void CMainFrame::OnDocumentCreated(CModDoc *pModDoc)
 {
 	m_wndTree.OnDocumentCreated(pModDoc);
 	UpdateMRUList();
+	UpdateDocumentCount();
 }
 
 
@@ -1915,6 +2021,7 @@ void CMainFrame::OnDocumentClosed(CModDoc *pModDoc)
 	if (pModDoc == GetModPlaying()) PauseMod();
 
 	m_wndTree.OnDocumentClosed(pModDoc);
+	// We don't do UpdateDocumentCount() here because the document still exists at this point in time - the document template informs us instead.
 }
 
 
@@ -1934,49 +2041,69 @@ void CMainFrame::RefreshDlsBanks()
 // CMainFrame message handlers
 
 
+class CPropertySheetMPT : public CPropertySheet
+{
+	using CPropertySheet::CPropertySheet;
+
+	BOOL PreTranslateMessage(MSG *pMsg) override
+	{
+		if(pMsg && DialogBase::HandleGlobalKeyMessage(*pMsg))
+			return TRUE;
+
+		return CPropertySheet::PreTranslateMessage(pMsg);
+	}
+};
+
+
 void CMainFrame::OnViewOptions()
 {
 	if (m_bOptionsLocked)
 		return;
 
-	CPropertySheet dlg(_T("OpenMPT Setup"), this, m_nLastOptionsPage);
-	mpt::heap_value<COptionsGeneral> general;
-	mpt::heap_value<COptionsSoundcard> sounddlg(TrackerSettings::Instance().m_SoundDeviceIdentifier);
-	mpt::heap_value<COptionsSampleEditor> smpeditor;
-	mpt::heap_value<COptionsKeyboard> keyboard;
-	mpt::heap_value<COptionsColors> colors;
-	mpt::heap_value<COptionsMixer> mixerdlg;
-	mpt::heap_value<CMidiSetupDlg> mididlg(TrackerSettings::Instance().m_dwMidiSetup, TrackerSettings::Instance().GetCurrentMIDIDevice());
-	mpt::heap_value<PathConfigDlg> pathsdlg;
-#if defined(MPT_ENABLE_UPDATE)
-	mpt::heap_value<CUpdateSetupDlg> updatedlg;
-#endif // MPT_ENABLE_UPDATE
-	mpt::heap_value<COptionsAdvanced> advanced;
-	mpt::heap_value<COptionsWine> winedlg;
-	dlg.AddPage(&*general);
-	dlg.AddPage(&*sounddlg);
-	dlg.AddPage(&*mixerdlg);
+	CPropertySheetMPT dlg(_T("OpenMPT Setup"), this, m_nLastOptionsPage);
+	struct Pages
+	{
+		COptionsGeneral general;
+		COptionsSoundcard sounddlg{TrackerSettings::Instance().m_SoundDeviceIdentifier};
+		COptionsSampleEditor smpeditor;
+		COptionsKeyboard keyboard;
+		COptionsColors colors;
+		COptionsMixer mixerdlg;
 #if !defined(NO_REVERB) || !defined(NO_DSP) || !defined(NO_EQ) || !defined(NO_AGC)
-	mpt::heap_value<COptionsPlayer> dspdlg;
-	dlg.AddPage(&*dspdlg);
+		COptionsPlayer dspdlg;
 #endif
-	dlg.AddPage(&*smpeditor);
-	dlg.AddPage(&*keyboard);
-	dlg.AddPage(&*colors);
-	dlg.AddPage(&*mididlg);
-	dlg.AddPage(&*pathsdlg);
+		CMidiSetupDlg mididlg{TrackerSettings::Instance().midiSetup, TrackerSettings::Instance().GetCurrentMIDIDevice()};
+		PathConfigDlg pathsdlg;
 #if defined(MPT_ENABLE_UPDATE)
-	dlg.AddPage(&*updatedlg);
+		CUpdateSetupDlg updatedlg;
+#endif  // MPT_ENABLE_UPDATE
+		COptionsAdvanced advanced;
+		COptionsWine winedlg;
+	};
+	mpt::heap_value<Pages> pages;
+	dlg.AddPage(&pages->general);
+	dlg.AddPage(&pages->sounddlg);
+	dlg.AddPage(&pages->mixerdlg);
+#if !defined(NO_REVERB) || !defined(NO_DSP) || !defined(NO_EQ) || !defined(NO_AGC)
+	dlg.AddPage(&pages->dspdlg);
+#endif
+	dlg.AddPage(&pages->smpeditor);
+	dlg.AddPage(&pages->keyboard);
+	dlg.AddPage(&pages->colors);
+	dlg.AddPage(&pages->mididlg);
+	dlg.AddPage(&pages->pathsdlg);
+#if defined(MPT_ENABLE_UPDATE)
+	dlg.AddPage(&pages->updatedlg);
 #endif // MPT_ENABLE_UPDATE
-	dlg.AddPage(&*advanced);
+	dlg.AddPage(&pages->advanced);
 	if(mpt::OS::Windows::IsWine())
 	{
-		dlg.AddPage(&*winedlg);
+		dlg.AddPage(&pages->winedlg);
 	}
 	m_bOptionsLocked = true;
-	m_SoundCardOptionsDialog = &*sounddlg;
+	m_SoundCardOptionsDialog = &pages->sounddlg;
 #if defined(MPT_ENABLE_UPDATE)
-	m_UpdateOptionsDialog = &*updatedlg;
+	m_UpdateOptionsDialog = &pages->updatedlg;
 #endif // MPT_ENABLE_UPDATE
 	dlg.DoModal();
 	m_SoundCardOptionsDialog = nullptr;
@@ -2089,25 +2216,21 @@ void CMainFrame::OnTimerGUI()
 	IdleHandlerSounddevice();
 
 	// Display Time in status bar
-	CSoundFile::samplecount_t time = 0;
 	if(m_pSndFile != nullptr && m_pSndFile->GetSampleRate() != 0)
 	{
-		time = m_pSndFile->GetTotalSampleCount() / m_pSndFile->GetSampleRate();
+		samplecount_t time = Util::muldivr(m_pSndFile->GetTotalSampleCount(), 10, m_pSndFile->GetSampleRate());
 		if(time != m_dwTimeSec)
 		{
 			m_dwTimeSec = time;
 			m_nAvgMixChn = m_nMixChn;
-			OnUpdateTime(NULL);
+			OnUpdateTime(nullptr);
 		}
 	}
 
-	// Idle Time Check
-	DWORD curTime = timeGetTime();
-
-	if(m_AutoSaver.IsEnabled())
+	if(m_AutoSaver->IsEnabled())
 	{
-		bool success = m_AutoSaver.DoSave(curTime);
-		if (!success)		// autosave failure; bring up options.
+		bool success = m_AutoSaver->DoSave();
+		if(!success)  // autosave failure; bring up options.
 		{
 			CMainFrame::m_nLastOptionsPage = OPTIONS_PAGE_PATHS;
 			OnViewOptions();
@@ -2198,8 +2321,9 @@ void CMainFrame::SwitchToActiveView()
 void CMainFrame::OnUpdateTime(CCmdUI *)
 {
 	TCHAR s[64];
-	wsprintf(s, _T("%u:%02u:%02u"),
-		m_dwTimeSec / 3600, (m_dwTimeSec / 60) % 60, m_dwTimeSec % 60);
+	auto timeSec = m_dwTimeSec / 10u;
+	wsprintf(s, _T("%u:%02u:%02u.%u"),
+		timeSec / 3600u, (timeSec / 60u) % 60u, timeSec % 60u, m_dwTimeSec % 10u);
 
 	if(m_pSndFile != nullptr && m_pSndFile != &m_WaveFile && !m_pSndFile->IsPaused())
 	{
@@ -2208,9 +2332,9 @@ void CMainFrame::OnUpdateTime(CCmdUI *)
 		{
 			if(nPat < 10) _tcscat(s, _T(" "));
 			if(nPat < 100) _tcscat(s, _T(" "));
-			wsprintf(s + _tcslen(s), _T(" [%d]"), nPat);
+			wsprintf(s + _tcslen(s), _T(" [%u]"), nPat);
 		}
-		wsprintf(s + _tcslen(s), _T(" %dch"), m_nAvgMixChn);
+		wsprintf(s + _tcslen(s), _T(" %uch"), m_nAvgMixChn);
 	}
 	m_wndStatusBar.SetPaneText(m_wndStatusBar.CommandToIndex(ID_INDICATOR_TIME), s, TRUE);
 }
@@ -2268,7 +2392,7 @@ void CMainFrame::OpenMenuItemFile(const UINT nId, const bool isTemplateFile)
 	{
 		MPT_ASSERT(nId == UINT(isTemplateFile ? ID_FILE_OPENTEMPLATE_LASTINRANGE : ID_EXAMPLE_MODULES_LASTINRANGE));
 		FileDialog::PathList files;
-		theApp.OpenModulesDialog(files, isTemplateFile ? theApp.GetConfigPath() + P_("TemplateModules") : theApp.GetInstallPath() + P_("ExampleSongs"));
+		theApp.OpenModulesDialog(files, isTemplateFile ? theApp.GetUserTemplatesPath() : theApp.GetExampleSongsPath());
 		for(const auto &file : files)
 		{
 			theApp.OpenDocumentFile(file.ToCString());
@@ -2303,7 +2427,7 @@ void CMainFrame::OnUpdateMRUItem(CCmdUI *cmd)
 
 LRESULT CMainFrame::OnInvalidatePatterns(WPARAM, LPARAM)
 {
-	UpdateAllViews(UpdateHint().MPTOptions());
+	theApp.UpdateAllViews(UpdateHint().MPTOptions());
 	return TRUE;
 }
 
@@ -2319,6 +2443,7 @@ LRESULT CMainFrame::OnUpdatePosition(WPARAM, LPARAM lParam)
 		if(pnotify->type[Notification::EOS])
 		{
 			PostMessage(WM_COMMAND, ID_PLAYER_STOP);
+			m_currentSpeed = 0;
 		}
 		//Log("OnUpdatePosition: row=%d time=%lu\n", pnotify->nRow, pnotify->TimestampSamples);
 		if(CModDoc *modDoc = GetModPlaying(); modDoc != nullptr)
@@ -2334,6 +2459,12 @@ LRESULT CMainFrame::OnUpdatePosition(WPARAM, LPARAM lParam)
 						modDoc->PostMessageToAllViews(WM_MOD_PLUGINDRYWETRATIOCHANGED, i);
 				}
 				m_pSndFile->m_pluginDryWetRatioChanged.reset();
+			}
+			// Update envelope views if speed has changed
+			if(m_pSndFile->m_PlayState.m_nMusicSpeed != m_currentSpeed)
+			{
+				m_currentSpeed = m_pSndFile->m_PlayState.m_nMusicSpeed;
+				modDoc->UpdateAllViews(InstrumentHint().Envelope());
 			}
 		}
 		m_nMixChn = pnotify->mixedChannels;
@@ -2446,40 +2577,94 @@ BOOL CMainFrame::OnInternetLink(UINT nID)
 
 void CMainFrame::OnRButtonDown(UINT, CPoint pt)
 {
-	CMenu Menu;
 	ClientToScreen(&pt);
-	if (Menu.LoadMenu(IDR_TOOLBARS))
-	{
-		CMenu *pSubMenu = Menu.GetSubMenu(0);
-		if (pSubMenu != nullptr) pSubMenu->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, pt.x, pt.y, this);
-	}
+	ShowToolbarMenu(pt);
+}
+
+
+void CMainFrame::ShowToolbarMenu(CPoint screenPt)
+{
+	CMenu menu;
+	if(!menu.CreatePopupMenu())
+		return;
+	AddToolBarMenuEntries(menu);
+	menu.TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, screenPt.x, screenPt.y, this);
+}
+
+
+void CMainFrame::AddToolBarMenuEntries(CMenu &menu) const
+{
+	menu.AppendMenu(MF_STRING, ID_VIEW_TOOLBAR, m_InputHandler->GetMenuText(ID_VIEW_TOOLBAR));
+	menu.AppendMenu(MF_STRING, IDD_TREEVIEW, m_InputHandler->GetMenuText(IDD_TREEVIEW));
+	menu.AppendMenu(MF_STRING | (TrackerSettings::Instance().treeViewOnLeft ? MF_CHECKED : 0), ID_TREEVIEW_ON_LEFT, _T("Tree View on &Left"));
+
+	const FlagSet<MainToolBarItem> visibleItems = TrackerSettings::Instance().mainToolBarVisibleItems.Get();
+
+	CMenu subMenu;
+	VERIFY(subMenu.CreatePopupMenu());
+	subMenu.AppendMenu(MF_STRING | (visibleItems[MainToolBarItem::Octave] ? MF_CHECKED : 0), ID_MAINBAR_SHOW_OCTAVE, _T("Base &Octave"));
+	subMenu.AppendMenu(MF_STRING | (visibleItems[MainToolBarItem::Tempo] ? MF_CHECKED : 0), ID_MAINBAR_SHOW_TEMPO, _T("&Tempo"));
+	subMenu.AppendMenu(MF_STRING | (visibleItems[MainToolBarItem::Speed] ? MF_CHECKED : 0), ID_MAINBAR_SHOW_SPEED, _T("Ticks/&Row"));
+	subMenu.AppendMenu(MF_STRING | (visibleItems[MainToolBarItem::RowsPerBeat] ? MF_CHECKED : 0), ID_MAINBAR_SHOW_ROWSPERBEAT, _T("Rows Per &Beat"));
+	subMenu.AppendMenu(MF_STRING | (visibleItems[MainToolBarItem::GlobalVolume] ? MF_CHECKED : 0), ID_MAINBAR_SHOW_GLOBALVOLUME, _T("&Global Volume"));
+	subMenu.AppendMenu(MF_STRING | (visibleItems[MainToolBarItem::VUMeter] ? MF_CHECKED : 0), ID_MAINBAR_SHOW_VUMETER, _T("&VU Meters"));
+	menu.AppendMenu(MF_POPUP, reinterpret_cast<UINT_PTR>(subMenu.Detach()), _T("Main Toolbar &Items"));
+}
+
+
+void CMainFrame::OnToggleMainBarShowOctave() { OnToggleMainBarItem(MainToolBarItem::Octave, ID_MAINBAR_SHOW_OCTAVE); }
+void CMainFrame::OnToggleMainBarShowTempo() { OnToggleMainBarItem(MainToolBarItem::Tempo, ID_MAINBAR_SHOW_TEMPO); }
+void CMainFrame::OnToggleMainBarShowSpeed() { OnToggleMainBarItem(MainToolBarItem::Speed, ID_MAINBAR_SHOW_SPEED); }
+void CMainFrame::OnToggleMainBarShowRowsPerBeat() { OnToggleMainBarItem(MainToolBarItem::RowsPerBeat, ID_MAINBAR_SHOW_ROWSPERBEAT); }
+void CMainFrame::OnToggleMainBarShowGlobalVolume() { OnToggleMainBarItem(MainToolBarItem::GlobalVolume, ID_MAINBAR_SHOW_GLOBALVOLUME); }
+void CMainFrame::OnToggleMainBarShowVUMeter() { OnToggleMainBarItem(MainToolBarItem::VUMeter, ID_MAINBAR_SHOW_VUMETER); }
+
+void CMainFrame::OnToggleMainBarItem(MainToolBarItem item, UINT menuID)
+{
+	const bool visible = m_wndToolBar.ToggleVisibility(item);
+	GetMenu()->CheckMenuItem(menuID, MF_BYCOMMAND | (visible ? MF_CHECKED : 0));
+}
+
+
+void CMainFrame::OnToggleTreeViewOnLeft()
+{
+	const bool left = !TrackerSettings::Instance().treeViewOnLeft;
+	TrackerSettings::Instance().treeViewOnLeft = left;
+	m_wndTree.SetBarOnLeft(left);
+	RecalcLayout();
+	GetMenu()->CheckMenuItem(ID_TREEVIEW_ON_LEFT, MF_BYCOMMAND | (left ? MF_CHECKED : 0));
 }
 
 
 LRESULT CMainFrame::OnCustomKeyMsg(WPARAM wParam, LPARAM lParam)
 {
-	switch(wParam)
+	CommandID cmd = static_cast<CommandID>(wParam);
+	switch(cmd)
 	{
 		case kcViewTree: OnBarCheck(IDD_TREEVIEW); break;
 		case kcViewOptions: OnViewOptions(); break;
-		case kcViewMain: OnBarCheck(59392 /* MAINVIEW */); break;
-	 	case kcFileImportMidiLib: OnImportMidiLib(); break;
+		case kcViewMain: OnBarCheck(ID_VIEW_TOOLBAR); break;
+		case kcFileImportMidiLib: OnImportMidiLib(); break;
 		case kcFileAddSoundBank: OnAddDlsBank(); break;
-		case kcPauseSong:	OnPlayerPause(); break;
-		case kcPrevOctave:	OnPrevOctave(); break;
-		case kcNextOctave:	OnNextOctave(); break;
-		case kcFileNew:		theApp.OnFileNew(); break;
-		case kcFileOpen:	theApp.OnFileOpen(); break;
-		case kcMidiRecord:	OnMidiRecord(); break;
-		case kcHelp: 		OnHelp(); break;
+		case kcPauseSong: OnPlayerPause(); break;
+		case kcPrevOctave: OnPrevOctave(); break;
+		case kcNextOctave: OnNextOctave(); break;
+		case kcFileNew: theApp.OnFileNew(); break;
+		case kcFileOpen: theApp.OnFileOpen(); break;
+		case kcMidiRecord: OnMidiRecord(); break;
+		case kcHelp: OnHelp(); break;
 		case kcViewAddPlugin: OnPluginManager(); break;
-		case kcNextDocument:	MDINext(); break;
-		case kcPrevDocument:	MDIPrev(); break;
-		case kcFileCloseAll:	theApp.OnFileCloseAll(); break;
-
+		case kcNextDocument: MDINext(); break;
+		case kcPrevDocument: MDIPrev(); break;
+		case kcFileCloseAll:
+			if(GetActiveWindow() != this)
+				return kcNull;
+			theApp.OnFileCloseAll();
+			break;
 
 		//D'oh!! moddoc isn't a CWnd so we have to handle its messages and pass them on.
 
+		case kcFileAppend:
 		case kcFileSaveAs:
 		case kcFileSaveCopy:
 		case kcFileSaveAsWave:
@@ -2520,33 +2705,26 @@ LRESULT CMainFrame::OnCustomKeyMsg(WPARAM wParam, LPARAM lParam)
 		case kcSpeedIncrease:
 		case kcSpeedDecrease:
 		case kcViewToggle:
-			{
-				CModDoc *modDoc = GetActiveDoc();
-				if (modDoc)
-					return GetActiveDoc()->OnCustomKeyMsg(wParam, lParam);
-				else if(wParam == kcPlayPauseSong || wParam == kcPlayStopSong|| wParam == kcStopSong)
-					StopPreview();
-				break;
-			}
+			if(CModDoc *modDoc = GetActiveDoc())
+				return modDoc->OnCustomKeyMsg(wParam, lParam);
+			else if(cmd == kcPlayPauseSong || cmd == kcPlayStopSong || cmd == kcStopSong)
+				StopPreview();
+			else
+				return kcNull;
+			break;
 
 		case kcSwitchToInstrLibrary:
+			if(!m_wndTree.IsVisible())
+				return kcNull;
 			if(m_bModTreeHasFocus)
 				SwitchToActiveView();
 			else
 				m_wndTree.SetFocus();
 			break;
 
-		//if handled neither by MainFrame nor by ModDoc...
 		default:
-			//If the treeview has focus, post command to the tree view
-			if (m_bModTreeHasFocus)
-				return m_wndTree.SendMessageToModTree(WM_MOD_KEYCOMMAND, wParam, lParam);
-			if (m_pNoteMapHasFocus)
-				return m_pNoteMapHasFocus->SendMessage(WM_MOD_KEYCOMMAND, wParam, lParam);
-			if (m_pOrderlistHasFocus)
-				return m_pOrderlistHasFocus->SendMessage(WM_MOD_KEYCOMMAND, wParam, lParam);
-
-			//Else send it to the active view
+			// If handled neither by MainFrame nor by ModDoc, send it to the active view
+			// Note: MDIGetActive() will return a valid view even if we are currently in a modal dialog!
 			CMDIChildWnd *pMDIActive = MDIGetActive();
 			CWnd *wnd = nullptr;
 			if(pMDIActive)
@@ -2560,25 +2738,29 @@ LRESULT CMainFrame::OnCustomKeyMsg(WPARAM wParam, LPARAM lParam)
 			}
 
 			// Backup solution for order navigation if the currently active view is not a pattern view, but a module is playing
-			if((wParam >= kcPrevNextOrderStart && wParam <= kcPrevNextOrderEnd)
+			// Note: This should also work if the currently active window is not a CMDIChildWnd, hence it happens before the GetActiveWindow() check.
+			if(mpt::is_in_range(cmd, kcPrevNextOrderStart, kcPrevNextOrderEnd)
 				&& m_pSndFile && m_pSndFile->GetpModDoc()
 				&& wnd != nullptr
 				&& strcmp(wnd->GetRuntimeClass()->m_lpszClassName, "CViewPattern"))
 			{
-				ResetNotificationBuffer();
 				CriticalSection cs;
 
 				ORDERINDEX order = m_pSndFile->m_PlayState.m_nCurrentOrder;
-				if(wParam == kcPrevNextOrderStart || wParam == kcPrevOrderAtMeasureEnd || wParam == kcPrevOrderAtBeatEnd || wParam == kcPrevOrderAtRowEnd)
+				if(cmd == kcPrevOrder || cmd == kcPrevOrderAtMeasureEnd || cmd == kcPrevOrderAtBeatEnd || cmd == kcPrevOrderAtRowEnd)
 					order = m_pSndFile->Order().GetPreviousOrderIgnoringSkips(order);
 				else
 					order = m_pSndFile->Order().GetNextOrderIgnoringSkips(order);
 				
+				if(order == m_pSndFile->m_PlayState.m_nCurrentOrder)
+					return wParam;
+
+				ResetNotificationBuffer();
 				switch(wParam)
 				{
 				case kcPrevOrder:
 				case kcNextOrder:
-					m_pSndFile->GetpModDoc()->SetElapsedTime(order, 0, !m_pSndFile->m_SongFlags[SONG_PAUSED | SONG_STEP]);
+					m_pSndFile->GetpModDoc()->SetElapsedTime(order, 0, !m_pSndFile->m_PlayState.m_flags[SONG_PAUSED | SONG_STEP]);
 					break;
 				case kcPrevOrderAtMeasureEnd:
 				case kcNextOrderAtMeasureEnd:
@@ -2596,22 +2778,15 @@ LRESULT CMainFrame::OnCustomKeyMsg(WPARAM wParam, LPARAM lParam)
 					m_pSndFile->m_PlayState.m_nSeqOverride = order;
 					break;
 				}
+				return wParam;
 			}
 
-			if(wnd)
+			if(wnd && GetActiveWindow() == this)
 				return wnd->SendMessage(WM_MOD_KEYCOMMAND, wParam, lParam);
 			return kcNull;
 	}
 
 	return wParam;
-}
-
-
-void CMainFrame::OnInitMenu(CMenu* pMenu)
-{
-	m_InputHandler->SetModifierMask(ModNone);
-	CMDIFrameWnd::OnInitMenu(pMenu);
-
 }
 
 
@@ -2632,6 +2807,14 @@ void CMainFrame::StopRenderer(CSoundFile *pSndFile)
 }
 
 
+CInputHandler *CMainFrame::GetInputHandler()
+{
+	if(CMainFrame *mainFrm = GetMainFrame())
+		return GetMainFrame()->m_InputHandler.get();
+	return nullptr;
+}
+
+
 // We have switched focus to a new module - might need to update effect keys to reflect module type
 bool CMainFrame::UpdateEffectKeys(const CModDoc *modDoc)
 {
@@ -2643,25 +2826,16 @@ bool CMainFrame::UpdateEffectKeys(const CModDoc *modDoc)
 }
 
 
-void CMainFrame::OnKillFocus(CWnd* pNewWnd)
-{
-	CMDIFrameWnd::OnKillFocus(pNewWnd);
-
-	//rewbs: ensure modifiers are reset when we leave the window (e.g. alt-tab)
-	m_InputHandler->SetModifierMask(ModNone);
-}
-
-
 void CMainFrame::OnShowWindow(BOOL bShow, UINT /*nStatus*/)
 {
 	static bool firstShow = true;
-	if (bShow && !IsWindowVisible() && firstShow)
+	if(bShow && !IsWindowVisible() && firstShow)
 	{
 		firstShow = false;
 		WINDOWPLACEMENT wpl;
 		GetWindowPlacement(&wpl);
 		wpl = theApp.GetSettings().Read<WINDOWPLACEMENT>(U_("Display"), U_("WindowPlacement"), wpl);
-		SetWindowPlacement(&wpl);
+		HighDPISupport::SetWindowPlacement(m_hWnd, wpl);
 	}
 }
 
@@ -2764,6 +2938,10 @@ LRESULT CMainFrame::OnUpdateCheckStart(WPARAM wparam, LPARAM lparam)
 
 LRESULT CMainFrame::OnUpdateCheckProgress(WPARAM wparam, LPARAM lparam)
 {
+	if(m_cancelUpdateCheck)
+	{
+		return FALSE;
+	}
 	bool isAutoUpdate = wparam != 0;
 	CString updateText = MPT_CFORMAT("Checking for updates... {}%")(lparam);
 	if(isAutoUpdate)
@@ -2940,7 +3118,7 @@ void CMainFrame::OnHelp()
 				case CModControlView::Page::Instruments: page = "::/Instruments.html"; break;
 				case CModControlView::Page::Comments: page = "::/Comments.html"; break;
 				case CModControlView::Page::Unknown: /* nothing */ break;
-				case CModControlView::Page::MaxPages: /* nothing */ break;
+				case CModControlView::Page::NumPages: /* nothing */ break;
 			}
 		}
 	}
@@ -2970,46 +3148,137 @@ LRESULT CMainFrame::OnViewMIDIMapping(WPARAM wParam, LPARAM lParam)
 }
 
 
+void CMainFrame::LoadMetronomeSamples()
+{
+	const std::tuple<mpt::PathString, ModSample &, const int, const int> metronomeSamples[] =
+	{
+		{TrackerSettings::Instance().metronomeSampleMeasure, m_metronomeMeasure, 4, 256},
+		{TrackerSettings::Instance().metronomeSampleBeat, m_metronomeBeat, 2, 192},
+	};
+	CriticalSection cs;
+	for(auto &[path, sample, speed, amp] : metronomeSamples)
+	{
+		sample.FreeSample();
+		if(path.empty())
+			continue;
+		if(path != TrackerSettings::GetDefaultMetronomeSample())
+		{
+			mpt::IO::InputFile inputFile(path, TrackerSettings::Instance().MiscCacheCompleteFileBeforeLoading);
+			if(inputFile.IsValid())
+			{
+				FileReader file = GetFileReader(inputFile);
+				SAMPLEINDEX srcSmp = m_WaveFile.GetNextFreeSample();
+				if(srcSmp == SAMPLEINDEX_INVALID)
+					srcSmp = 1;
+				if(m_WaveFile.ReadSampleFromFile(srcSmp, file))
+				{
+					std::swap(sample, m_WaveFile.GetSample(srcSmp));
+					sample.Convert(m_WaveFile.GetType(), MOD_TYPE_MPT);
+				}
+			}
+		}
+		if(!sample.HasSampleData())
+		{
+			sample.Initialize(MOD_TYPE_MPT);
+			sample.nC5Speed = 8363 * 16;
+			sample.nLength = 4096;
+			sample.uFlags.set(CHN_16BIT);
+			if(sample.AllocateSample())
+			{
+				int16_t *sampleData = sample.sample16();
+				for(SmpLength i = 0; i < sample.nLength; i++)
+				{
+					sampleData[i] = static_cast<int16>(Util::muldiv(ITSinusTable[(i * speed) % std::size(ITSinusTable)] * amp, 4096 * 4096 - i * i, 4096 * 4096));
+				}
+			}
+		}
+	}
+	UpdateMetronomeVolume();
+	UpdateMetronomeSamples();
+}
+
+
+void CMainFrame::UpdateMetronomeSamples()
+{
+	if(!m_pSndFile)
+		return;
+	ModSample *measure = nullptr, *beat = nullptr;
+	if(TrackerSettings::Instance().metronomeEnabled)
+	{
+		measure = &m_metronomeMeasure;
+		beat = &m_metronomeBeat;
+	}
+	CriticalSection cs;
+	m_pSndFile->SetMetronomeSamples(measure, beat);
+}
+
+
+void CMainFrame::UpdateMetronomeVolume()
+{
+	const float linear = std::pow(10.0f, TrackerSettings::Instance().metronomeVolume / 20.0f);
+	const uint16 volume = std::clamp(mpt::saturate_round<uint16>(linear * 256.0f), uint16(0), uint16(256));
+	CriticalSection cs;
+	m_metronomeBeat.nVolume = m_metronomeMeasure.nVolume = volume;
+}
+
+
 HMENU CMainFrame::CreateFileMenu(const size_t maxCount, std::vector<mpt::PathString>& paths, const mpt::PathString &folderName, const uint16 idRangeBegin)
 {
 	paths.clear();
-	HMENU hMenu = ::CreatePopupMenu();
-	ASSERT(hMenu != NULL);
-	if (hMenu != NULL)
+
+	for(size_t i = 0; i < 2; i++)  // 0: app items, 1: user items
 	{
-		UINT_PTR filesAdded = 0;
-		for(size_t i = 0; i < 2; i++) // 0: app items, 1: user items
+		// To avoid duplicates, check whether app path and config path are the same.
+		if(i == 1 && mpt::PathCompareNoCase(theApp.GetInstallPath(), theApp.GetConfigPath()) == 0)
+			break;
+
+		mpt::PathString basePath;
+		basePath = (i == 0) ? theApp.GetInstallPath() : theApp.GetConfigPath();
+		basePath += folderName;
+		if(!mpt::native_fs{}.is_directory(basePath))
+			continue;
+
+		FolderScanner scanner(basePath, FolderScanner::kOnlyFiles);
+		mpt::PathString fileName;
+		while(scanner.Next(fileName))
 		{
-			// To avoid duplicates, check whether app path and config path are the same.
-			if (i == 1 && mpt::PathCompareNoCase(theApp.GetInstallPath(), theApp.GetConfigPath()) == 0)
-				break;
-
-			mpt::PathString basePath;
-			basePath = (i == 0) ? theApp.GetInstallPath() : theApp.GetConfigPath();
-			basePath += folderName;
-			if(!mpt::native_fs{}.is_directory(basePath))
-				continue;
-
-			FolderScanner scanner(basePath, FolderScanner::kOnlyFiles);
-			mpt::PathString fileName;
-			while(filesAdded < maxCount && scanner.Next(fileName))
-			{
-				paths.push_back(fileName);
-				CString file = fileName.GetFilename().ToCString();
-				file.Replace(_T("&"), _T("&&"));
-				AppendMenu(hMenu, MF_STRING, idRangeBegin + filesAdded, file);
-				filesAdded++;
-			}
+			paths.push_back(std::move(fileName));
 		}
+	}
+	DWORD stringCompareFlags = NORM_IGNORECASE | NORM_IGNOREWIDTH;
+#if MPT_WINNT_AT_LEAST(MPT_WIN_7)
+	// Wine does not support natural sorting with SORT_DIGITSASNUMBERS, fall back to normal sorting
+	if(::CompareString(LOCALE_USER_DEFAULT, stringCompareFlags | SORT_DIGITSASNUMBERS, _T(""), -1, _T(""), -1) == CSTR_EQUAL)
+		stringCompareFlags |= SORT_DIGITSASNUMBERS;
+#endif
+	std::sort(paths.begin(), paths.end(), [stringCompareFlags](const mpt::PathString &left, const mpt::PathString &right)
+	{
+		return ::CompareString(LOCALE_USER_DEFAULT, stringCompareFlags, left.AsNative().c_str(), -1, right.AsNative().c_str(), -1) == CSTR_LESS_THAN;
+	});
 
-		if(filesAdded == 0)
-		{
-			AppendMenu(hMenu, MF_STRING | MF_GRAYED | MF_DISABLED, 0, _T("No items found"));
-		} else
-		{
-			AppendMenu(hMenu, MF_SEPARATOR, 0, 0);
-			AppendMenu(hMenu, MF_STRING, idRangeBegin + maxCount, _T("Browse..."));
-		}
+	HMENU hMenu = ::CreatePopupMenu();
+	MPT_ASSERT(hMenu != nullptr);
+	if(hMenu == nullptr)
+		return hMenu;
+
+	UINT_PTR filesAdded = 0;
+	for(const auto &fileName : paths)
+	{
+		CString file = fileName.GetFilename().ToCString();
+		file.Replace(_T("&"), _T("&&"));
+		AppendMenu(hMenu, MF_STRING, idRangeBegin + filesAdded, file);
+		filesAdded++;
+		if(filesAdded >= maxCount)
+			break;
+	}
+
+	if(filesAdded == 0)
+	{
+		AppendMenu(hMenu, MF_STRING | MF_GRAYED | MF_DISABLED, 0, _T("No items found"));
+	} else
+	{
+		AppendMenu(hMenu, MF_SEPARATOR, 0, 0);
+		AppendMenu(hMenu, MF_STRING, idRangeBegin + maxCount, _T("&Browse..."));
 	}
 
 	return hMenu;
@@ -3022,26 +3291,28 @@ void CMainFrame::CreateExampleModulesMenu()
 				  "Make sure that there's a proper range for menu commands in resources.");
 	HMENU hMenu = CreateFileMenu(nMaxItemsInExampleModulesMenu, m_ExampleModulePaths, P_("ExampleSongs\\"), ID_EXAMPLE_MODULES);
 	CMenu* const pMainMenu = GetMenu();
-	if (hMenu && pMainMenu && m_InputHandler)
+	if (hMenu && pMainMenu)
 		VERIFY(pMainMenu->ModifyMenu(ID_EXAMPLE_MODULES, MF_BYCOMMAND | MF_POPUP, (UINT_PTR)hMenu, m_InputHandler->GetMenuText(ID_EXAMPLE_MODULES)));
 	else
 		ASSERT(false);
 }
 
 
-// Hack-ish way to get the file menu (this is necessary because the MDI document icon next to the File menu is a sub menu, too).
-CMenu *CMainFrame::GetFileMenu() const
+std::pair<CMenu *, int> CMainFrame::FindMenuItemByCommand(CMenu &menu, UINT commandID)
 {
-	CMenu *mainMenu = GetMenu();
-	CMenu *fileMenu = mainMenu ? mainMenu->GetSubMenu(0) : nullptr;
-	if(fileMenu)
+	const int numItems = menu.GetMenuItemCount();
+	for(int item = 0; item < numItems; item++)
 	{
-		if(fileMenu->GetMenuItemID(1) != ID_FILE_OPEN)
-			fileMenu = mainMenu->GetSubMenu(1);
-		ASSERT(fileMenu->GetMenuItemID(1) == ID_FILE_OPEN);
+		if(menu.GetMenuItemID(item) == commandID)
+			return {&menu, item};
+		CMenu *subMenu = menu.GetSubMenu(item);
+		if(subMenu != nullptr)
+		{
+			if(auto result = FindMenuItemByCommand(*subMenu, commandID); result.first != nullptr)
+				return result;
+		}
 	}
-	ASSERT(fileMenu);
-	return fileMenu;
+	return {};
 }
 
 
@@ -3050,35 +3321,23 @@ void CMainFrame::CreateTemplateModulesMenu()
 	static_assert(nMaxItemsInTemplateModulesMenu == ID_FILE_OPENTEMPLATE_LASTINRANGE - ID_FILE_OPENTEMPLATE,
 				  "Make sure that there's a proper range for menu commands in resources.");
 	HMENU hMenu = CreateFileMenu(nMaxItemsInTemplateModulesMenu, m_TemplateModulePaths, P_("TemplateModules\\"), ID_FILE_OPENTEMPLATE);
-	CMenu *pFileMenu = GetFileMenu();
-	if (hMenu && pFileMenu && m_InputHandler)
+	auto [fileMenu, position] = FindMenuItemByCommand(*GetMenu(), ID_FILE_OPEN);
+	if(hMenu && fileMenu)
 	{
-		VERIFY(pFileMenu->RemoveMenu(2, MF_BYPOSITION));
-		VERIFY(pFileMenu->InsertMenu(2, MF_BYPOSITION | MF_POPUP, (UINT_PTR)hMenu, m_InputHandler->GetMenuText(ID_FILE_OPENTEMPLATE)));
+		VERIFY(fileMenu->RemoveMenu(position + 1, MF_BYPOSITION));
+		VERIFY(fileMenu->InsertMenu(position + 1, MF_BYPOSITION | MF_POPUP, (UINT_PTR)hMenu, m_InputHandler->GetMenuText(ID_FILE_OPENTEMPLATE)));
 	}
 	else
-		ASSERT(false);
+		MPT_ASSERT_NOTREACHED();
 }
 
 
 void CMainFrame::UpdateMRUList()
 {
-	CMenu *pMenu = GetFileMenu();
-	if(!pMenu) return;
-
-	static int firstMenu = -1;
-	if(firstMenu == -1)
-	{
-		int numMenus = pMenu->GetMenuItemCount();
-		for(int i = 0; i < numMenus; i++)
-		{
-			if(pMenu->GetMenuItemID(i) == ID_MRU_LIST_FIRST)
-			{
-				firstMenu = i;
-				break;
-			}
-		}
-	}
+	const auto [pMenu, firstMenu] = FindMenuItemByCommand(*GetMenu(), ID_MRU_LIST_FIRST);
+	MPT_ASSERT(pMenu);
+	if(!pMenu)
+		return;
 
 	for(int i = ID_MRU_LIST_FIRST; i <= ID_MRU_LIST_LAST; i++)
 	{
@@ -3150,9 +3409,154 @@ BOOL CMainFrame::OnQueryEndSession()
 }
 
 
+void CMainFrame::UpdateDocumentCount()
+{
+	const bool isLoaded = m_quickStartDlg != nullptr;
+	const bool shouldLoad = !theApp.GetOpenDocumentCount();
+	if(shouldLoad && !isLoaded)
+	{
+		m_quickStartDlg = std::make_unique<QuickStartDlg>(m_TemplateModulePaths, m_ExampleModulePaths, CWnd::FromHandle(m_hWndMDIClient));
+		m_quickStartDlg->CenterWindow();
+		m_quickStartDlg->ShowWindow(SW_SHOW);
+	} else if(isLoaded && !shouldLoad)
+	{
+		m_quickStartDlg.reset();
+	}
+}
+
+
+#ifdef MPT_ENABLE_PLAYBACK_TEST_MENU
+void CMainFrame::OnCreateMixerDump()
+{
+	std::string exts;
+	for(const auto &ext : CSoundFile::GetSupportedExtensions(true))
+	{
+		exts += std::string("*.") + ext + std::string(";");
+	}
+
+	FileDialog dlg = OpenFileDialog()
+		.AllowMultiSelect()
+		.ExtensionFilter("Module Files (*.it,*.xm,...)|" + exts + "|All files(*.*)|*.*||");
+	if(!dlg.Show(this))
+		return;
+	for(const auto &fileName : dlg.GetFilenames())
+	{
+		MPT_LOG_GLOBAL(LogDebug, "info", U_("Loading ") + fileName.ToUnicode());
+		auto sndFile = std::make_unique<CSoundFile>();
+		mpt::IO::InputFile f(fileName);
+		if(!f.IsValid())
+			continue;
+		if(!sndFile->Create(GetFileReader(f)))
+			continue;
+		auto playTest = sndFile->CreatePlaybackTest(PlaybackTestSettings{});
+		mpt::ofstream outFile(fileName + P_(".testdata.gz"), std::ios::binary | std::ios::trunc);
+		if(outFile)
+		{
+			std::ostringstream outStream;
+			playTest.Serialize(outStream);
+			#ifdef MPT_WITH_ZLIB
+				std::string outData = std::move(outStream).str();
+				WriteGzip(outFile, outData, fileName.GetFilename().ToUnicode() + U_(".testdata"));
+			#else
+				// miniz doesn't have gzip convenience functions
+				outFile << std::move(outStream).str();
+			#endif
+		}
+	}
+}
+
+
+void CMainFrame::OnVerifyMixerDump()
+{
+	FileDialog dlg = OpenFileDialog()
+		.AllowMultiSelect()
+		.ExtensionFilter("Test Data|*.testdata;*.testdata.gz|All files(*.*)|*.*||");
+	if(!dlg.Show(this))
+		return;
+	for(const auto &fileName : dlg.GetFilenames())
+	{
+		MPT_LOG_GLOBAL(LogDebug, "info", U_("Loading ") + fileName.ToUnicode());
+		try
+		{
+			auto modFileName = fileName;
+			if(!mpt::PathCompareNoCase(modFileName.GetFilenameExtension(), P_(".gz")))
+				modFileName = modFileName.ReplaceExtension({});
+			if(!mpt::PathCompareNoCase(modFileName.GetFilenameExtension(), P_(".testdata")))
+				modFileName = modFileName.ReplaceExtension({});
+
+			mpt::IO::InputFile testFile{fileName};
+			if(!testFile.IsValid())
+				throw std::runtime_error{"Cannot open test data file: " + fileName.ToUTF8()};
+
+			mpt::IO::InputFile modFile{modFileName};
+			if(!modFile.IsValid())
+				throw std::runtime_error{"Cannot open module data file: " + modFileName.ToUTF8()};
+
+			FileReader testFileReader = GetFileReader(testFile);
+			CGzipArchive archive{testFileReader};
+			if(archive.IsArchive())
+			{
+				if(!archive.ExtractFile(0))
+					throw std::runtime_error{"Cannot extract test data file!"};
+				testFileReader = archive.GetOutputFile();
+			}
+
+			PlaybackTest playTest{testFileReader};
+			auto sndFile = std::make_unique<CSoundFile>();
+			sndFile->Create(GetFileReader(modFile));
+
+			const auto result = PlaybackTest::Compare(playTest, sndFile->CreatePlaybackTest(playTest.GetSettings()));
+			if(!result.empty())
+			{
+				InfoDialog infoDlg{this};
+				infoDlg.SetCaption(_T("Test results for ") + fileName.AsNative());
+				mpt::winstring content;
+				for(const auto &line : result)
+				{
+					content += mpt::ToWin(line) + _T("\r\n");
+				}
+				infoDlg.SetContent(content);
+				infoDlg.DoModal();
+			}
+		} catch(const std::exception &e)
+		{
+			Reporting::Error(MPT_UFORMAT("Cannot convert {}: {}")(fileName.ToUnicode(), mpt::ToUnicode(mpt::Charset::UTF8, e.what())), this);
+		}
+	}
+}
+
+
+void CMainFrame::OnConvertMixerDumpToText()
+{
+	FileDialog dlg = OpenFileDialog()
+		.AllowMultiSelect()
+		.ExtensionFilter("Test Data|*.testdata;*.testdata.gz|All files(*.*)|*.*||");
+	if(!dlg.Show(this))
+		return;
+	for(const auto &fileName : dlg.GetFilenames())
+	{
+		MPT_LOG_GLOBAL(LogDebug, "info", U_("Loading ") + fileName.ToUnicode());
+		try
+		{
+			mpt::IO::InputFile f(fileName);
+			if(!f.IsValid())
+				throw std::runtime_error{"Cannot open test data file!"};
+			PlaybackTest playTest{GetFileReader(f)};
+			mpt::ofstream output(fileName.ReplaceExtension(P_(".tsv")), std::ios::binary);
+			playTest.ToTSV(output);
+		} catch(const std::exception &e)
+		{
+			Reporting::Error(MPT_UFORMAT("Cannot convert {}: {}")(fileName.ToUnicode(), mpt::ToUnicode(mpt::Charset::UTF8, e.what())), this);
+		}
+	}
+}
+
+#endif  // ENABLE_PLAYBACK_TEST_MENU
+
+
 void CMainFrame::NotifyAccessibilityUpdate(CWnd &source)
 {
-	if(!IsPlaying() || m_pSndFile->m_SongFlags[SONG_PAUSED])
+	if(!IsPlaying() || m_pSndFile->m_PlayState.m_flags[SONG_PAUSED])
 		source.NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, OBJID_CLIENT, CHILDID_SELF);
 }
 
@@ -3213,7 +3617,6 @@ HRESULT TfLanguageProfileNotifySink::OnLanguageChanged()
 	if(mainFrm != nullptr)
 	{
 		mainFrm->UpdateEffectKeys(mainFrm->GetActiveDoc());
-		mainFrm->m_InputHandler->SetModifierMask(ModNone);
 	}
 	return ResultFromScode(S_OK);
 }
@@ -3243,81 +3646,5 @@ ULONG TfLanguageProfileNotifySink::Release()
 	// Don't let COM do anything to this object
 	return 1;
 }
-
-
-/////////////////////////////////////////////
-//Misc helper functions
-/////////////////////////////////////////////
-
-void AddPluginNamesToCombobox(CComboBox &CBox, const std::array<SNDMIXPLUGIN, MAX_MIXPLUGINS> &plugins, const bool libraryName, const PLUGINDEX updatePlug)
-{
-#ifndef NO_PLUGINS
-	int insertAt = CBox.GetCount();
-	if(updatePlug != PLUGINDEX_INVALID)
-	{
-		const int items = insertAt;
-		for(insertAt = 0; insertAt < items; insertAt++)
-		{
-			auto thisPlugin = static_cast<PLUGINDEX>(CBox.GetItemData(insertAt));
-			if(thisPlugin == (updatePlug + 1))
-				CBox.DeleteString(insertAt);
-			if(thisPlugin >= (updatePlug + 1))
-				break;
-		}
-	}
-
-	mpt::tstring str;
-	str.reserve(80);
-	for(PLUGINDEX plug = 0; plug < MAX_MIXPLUGINS; plug++)
-	{
-		if(updatePlug != PLUGINDEX_INVALID && plug != updatePlug)
-			continue;
-		const SNDMIXPLUGIN &plugin = plugins[plug];
-		str.clear();
-		str += MPT_TFORMAT("FX{}: ")(plug + 1);
-		const auto plugName = plugin.GetName(), libName = plugin.GetLibraryName();
-		str += mpt::ToWin(plugName);
-		if(libraryName && plugName != libName && !libName.empty())
-			str += _T(" (") + mpt::ToWin(libName) + _T(")");
-		else if(plugName.empty() && (!libraryName || libName.empty()))
-			str += _T("--");
-#ifdef MPT_WITH_VST
-		auto *vstPlug = dynamic_cast<const CVstPlugin *>(plugin.pMixPlugin);
-		if(vstPlug != nullptr && vstPlug->isBridged)
-		{
-			VSTPluginLib &lib = vstPlug->GetPluginFactory();
-			str += MPT_TFORMAT(" ({} Bridged)")(lib.GetDllArchNameUser());
-		}
-#endif // MPT_WITH_VST
-
-		insertAt = CBox.InsertString(insertAt, str.c_str());
-		CBox.SetItemData(insertAt, plug + 1);
-		insertAt++;
-	}
-#endif // NO_PLUGINS
-}
-
-
-void AddPluginParameternamesToCombobox(CComboBox& CBox, SNDMIXPLUGIN& plug)
-{
-#ifndef NO_PLUGINS
-	if(plug.pMixPlugin)
-		AddPluginParameternamesToCombobox(CBox, *plug.pMixPlugin);
-#endif // NO_PLUGINS
-}
-
-
-void AddPluginParameternamesToCombobox(CComboBox& CBox, IMixPlugin& plug)
-{
-#ifndef NO_PLUGINS
-	const PlugParamIndex numParams = plug.GetNumParameters();
-	plug.CacheParameterNames(0, numParams);
-	for(PlugParamIndex i = 0; i < numParams; i++)
-	{
-		CBox.SetItemData(CBox.AddString(plug.GetFormattedParamName(i)), i);
-	}
-#endif // NO_PLUGINS
-}
-
 
 OPENMPT_NAMESPACE_END

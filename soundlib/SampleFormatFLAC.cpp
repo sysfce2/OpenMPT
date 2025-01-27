@@ -558,7 +558,7 @@ bool CSoundFile::SaveFLACSample(SAMPLEINDEX nSample, std::ostream &f) const
 {
 #ifdef MPT_WITH_FLAC
 	const ModSample &sample = Samples[nSample];
-	if(sample.uFlags[CHN_ADLIB])
+	if(sample.uFlags[CHN_ADLIB] || !sample.HasSampleData())
 		return false;
 
 	FLAC__StreamEncoder_RAII encoder(f);
@@ -664,7 +664,7 @@ bool CSoundFile::SaveFLACSample(SAMPLEINDEX nSample, std::ostream &f) const
 
 		for(uint32 i = 0; i < std::size(sample.cues); i++)
 		{
-			chunk.cues[i].ConvertToWAV(i, sample.cues[i]);
+			chunk.cues[i] = ConvertToWAVCuePoint(i, sample.cues[i]);
 		}
 
 		const uint32 length = sizeof(RIFFChunk) + chunk.header.length;

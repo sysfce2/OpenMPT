@@ -11,12 +11,13 @@
 #pragma once
 
 #include "openmpt/all/BuildSettings.hpp"
+#include "DialogBase.h"
 
 OPENMPT_NAMESPACE_BEGIN
 
 class CModDoc;
 
-class CModCleanupDlg: public CDialog
+class CModCleanupDlg : public DialogBase
 {
 private:
 	enum CleanupOptions
@@ -84,9 +85,8 @@ protected:
 	//{{AFX_VIRTUAL(CModCleanupDlg)
 	BOOL OnInitDialog() override;
 	void OnOK() override;
+	CString GetToolTipText(UINT id, HWND hwnd) const override;
 	//}}AFX_VIRTUAL
-
-	BOOL OnToolTipNotify(UINT id, NMHDR *pNMHDR, LRESULT *pResult);
 
 	//{{AFX_MSG(CModCleanupDlg)
 	afx_msg void OnPresetCleanupSong();

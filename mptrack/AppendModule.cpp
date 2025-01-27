@@ -165,6 +165,9 @@ void CModDoc::AppendModule(const CSoundFile &source)
 		{
 			m_SndFile.Order.AddSequence();
 			m_SndFile.Order().SetName(srcOrder.GetName());
+			m_SndFile.Order().SetDefaultTempo(srcOrder.GetDefaultTempo());
+			m_SndFile.Order().SetDefaultSpeed(srcOrder.GetDefaultSpeed());
+			m_SndFile.Order().SetRestartPos(srcOrder.GetRestartPos());
 		} else
 		{
 			insertPos = m_SndFile.Order().GetLengthTailTrimmed();
@@ -199,12 +202,12 @@ void CModDoc::AppendModule(const CSoundFile &source)
 					continue;
 				}
 				insertPat = patternMapping[srcPat];
-			} else if(srcPat == srcOrder.GetIgnoreIndex() && specs.hasIgnoreIndex)
+			} else if(srcPat == PATTERNINDEX_SKIP && specs.hasIgnoreIndex)
 			{
-				insertPat = m_SndFile.Order.GetIgnoreIndex();
-			} else if(srcPat == srcOrder.GetInvalidPatIndex() && specs.hasStopIndex)
+				insertPat = PATTERNINDEX_SKIP;
+			} else if(srcPat == PATTERNINDEX_INVALID && specs.hasStopIndex)
 			{
-				insertPat = m_SndFile.Order.GetInvalidPatIndex();
+				insertPat = PATTERNINDEX_INVALID;
 			} else
 			{
 				continue;

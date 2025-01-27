@@ -27,10 +27,10 @@
 OPENMPT_NAMESPACE_BEGIN
 
 
-CMIDIMappingDialog::CMIDIMappingDialog(CWnd *pParent, CSoundFile &rSndfile)
-	: CDialog(IDD_MIDIPARAMCONTROL, pParent)
-	, m_sndFile(rSndfile)
-	, m_rMIDIMapper(m_sndFile.GetMIDIMapper())
+CMIDIMappingDialog::CMIDIMappingDialog(CWnd *pParent, CSoundFile &sndfile)
+	: ResizableDialog{IDD_MIDIPARAMCONTROL, pParent}
+	, m_sndFile{sndfile}
+	, m_rMIDIMapper{m_sndFile.GetMIDIMapper()}
 {
 	CMainFrame::GetInputHandler()->Bypass(true);
 	oldMIDIRecondWnd = CMainFrame::GetMainFrame()->GetMidiRecordWnd();
@@ -44,9 +44,9 @@ CMIDIMappingDialog::~CMIDIMappingDialog()
 }
 
 
-void CMIDIMappingDialog::DoDataExchange(CDataExchange* pDX)
+void CMIDIMappingDialog::DoDataExchange(CDataExchange *pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	ResizableDialog::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_COMBO_CONTROLLER, m_ControllerCBox);
 	DDX_Control(pDX, IDC_COMBO_PLUGIN, m_PluginCBox);
 	DDX_Control(pDX, IDC_COMBO_PARAM, m_PlugParamCBox);
@@ -57,7 +57,7 @@ void CMIDIMappingDialog::DoDataExchange(CDataExchange* pDX)
 }
 
 
-BEGIN_MESSAGE_MAP(CMIDIMappingDialog, CDialog)
+BEGIN_MESSAGE_MAP(CMIDIMappingDialog, ResizableDialog)
 	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST1, &CMIDIMappingDialog::OnSelectionChanged)
 	ON_BN_CLICKED(IDC_CHECKACTIVE, &CMIDIMappingDialog::OnBnClickedCheckactive)
 	ON_BN_CLICKED(IDC_CHECKCAPTURE, &CMIDIMappingDialog::OnBnClickedCheckCapture)
@@ -72,8 +72,6 @@ BEGIN_MESSAGE_MAP(CMIDIMappingDialog, CDialog)
 	ON_MESSAGE(WM_MOD_MIDIMSG,		&CMIDIMappingDialog::OnMidiMsg)
 	ON_NOTIFY(UDN_DELTAPOS, IDC_SPINMOVEMAPPING, &CMIDIMappingDialog::OnDeltaposSpinmovemapping)
 	ON_BN_CLICKED(IDC_CHECK_PATRECORD, &CMIDIMappingDialog::OnBnClickedCheckPatRecord)
-
-	ON_NOTIFY_EX(TTN_NEEDTEXT, 0, &CMIDIMappingDialog::OnToolTipNotify)
 END_MESSAGE_MAP()
 
 
@@ -111,7 +109,7 @@ LRESULT CMIDIMappingDialog::OnMidiMsg(WPARAM dwMidiDataParam, LPARAM)
 
 BOOL CMIDIMappingDialog::OnInitDialog()
 {
-	CDialog::OnInitDialog();
+	ResizableDialog::OnInitDialog();
 
 	// Add events
 	m_EventCBox.SetItemData(m_EventCBox.AddString(_T("Controller Change")), MIDIEvents::evControllerChange);
@@ -128,7 +126,7 @@ BOOL CMIDIMappingDialog::OnInitDialog()
 	}
 
 	// Add plugin names
-	AddPluginNamesToCombobox(m_PluginCBox, m_sndFile.m_MixPlugins);
+	m_PluginCBox.Update(PluginComboBox::Config{PluginComboBox::ShowEmptySlots}, m_sndFile);
 
 	// Initialize mapping table
 	static constexpr CListCtrlEx::Header headers[] =
@@ -163,7 +161,6 @@ BOOL CMIDIMappingDialog::OnInitDialog()
 	CMainFrame::GetMainFrame()->SetMidiRecordWnd(GetSafeHwnd());
 
 	CheckDlgButton(IDC_CHECK_MIDILEARN, BST_CHECKED);
-	EnableToolTips(TRUE);
 
 	return TRUE;  // return TRUE unless you set the focus to a control
 }
@@ -243,7 +240,10 @@ void CMIDIMappingDialog::UpdateDialog(int selItem)
 	}
 
 	m_ControllerCBox.SetCurSel(m_Setting.GetController());
-	m_PluginCBox.SetCurSel(m_Setting.GetPlugIndex() - 1);
+	if(PLUGINDEX plug = m_Setting.GetPlugIndex(); plug > 0)
+		m_PluginCBox.SetSelection(plug - 1);
+	else
+		m_PluginCBox.SetSelection(PLUGINDEX_INVALID);
 	m_PlugParamCBox.SetCurSel(m_Setting.GetParamIndex());
 
 	UpdateEvent();
@@ -343,9 +343,10 @@ void CMIDIMappingDialog::OnCbnSelchangeComboChannel()
 
 void CMIDIMappingDialog::OnCbnSelchangeComboPlugin()
 {
-	int i = m_PluginCBox.GetCurSel();
-	if(i < 0 || i >= MAX_MIXPLUGINS) return;
-	m_Setting.SetPlugIndex(i+1);
+	PLUGINDEX i = m_PluginCBox.GetSelection().value_or(PLUGINDEX_INVALID);
+	if(i >= MAX_MIXPLUGINS)
+		return;
+	m_Setting.SetPlugIndex(i + 1);
 	UpdateParameters();
 }
 
@@ -454,18 +455,10 @@ void CMIDIMappingDialog::OnDeltaposSpinmovemapping(NMHDR *pNMHDR, LRESULT *pResu
 }
 
 
-BOOL CMIDIMappingDialog::OnToolTipNotify(UINT, NMHDR * pNMHDR, LRESULT *)
+CString CMIDIMappingDialog::GetToolTipText(UINT id, HWND) const
 {
-	TOOLTIPTEXT *pTTT = (TOOLTIPTEXT*)pNMHDR;
 	const TCHAR *text = _T("");
-	UINT_PTR nID = pNMHDR->idFrom;
-	if(pTTT->uFlags & TTF_IDISHWND)
-	{
-		// idFrom is actually the HWND of the tool
-		nID = ::GetDlgCtrlID((HWND)nID);
-	}
-
-	switch(nID)
+	switch(id)
 	{
 	case IDC_CHECKCAPTURE:
 		text = _T("The event is not passed to any further MIDI mappings or recording facilities.");
@@ -493,8 +486,7 @@ BOOL CMIDIMappingDialog::OnToolTipNotify(UINT, NMHDR * pNMHDR, LRESULT *)
 		break;
 	}
 
-	mpt::String::WriteWinBuf(pTTT->szText) = mpt::winstring(text);
-	return TRUE;
+	return text;
 }
 
 

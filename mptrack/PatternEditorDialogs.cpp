@@ -11,11 +11,13 @@
 
 #include "stdafx.h"
 #include "PatternEditorDialogs.h"
+#include "FileDialog.h"
 #include "InputHandler.h"
 #include "Mainfrm.h"
 #include "Moddoc.h"
 #include "Mptrack.h"
 #include "Reporting.h"
+#include "resource.h"
 #include "TempoSwingDialog.h"
 #include "View_pat.h"
 #include "WindowMessages.h"
@@ -124,17 +126,26 @@ void getXParam(ModCommand::COMMAND command, PATTERNINDEX nPat, ROWINDEX nRow, CH
 /////////////////////////////////////////////////////////////////////////////////////////////
 // CPatternPropertiesDlg
 
-BEGIN_MESSAGE_MAP(CPatternPropertiesDlg, CDialog)
+BEGIN_MESSAGE_MAP(CPatternPropertiesDlg, DialogBase)
 	ON_COMMAND(IDC_BUTTON_HALF,		&CPatternPropertiesDlg::OnHalfRowNumber)
 	ON_COMMAND(IDC_BUTTON_DOUBLE,	&CPatternPropertiesDlg::OnDoubleRowNumber)
 	ON_COMMAND(IDC_CHECK1,			&CPatternPropertiesDlg::OnOverrideSignature)
 	ON_COMMAND(IDC_BUTTON1,			&CPatternPropertiesDlg::OnTempoSwing)
 END_MESSAGE_MAP()
 
+
+CPatternPropertiesDlg::CPatternPropertiesDlg(CModDoc &modParent, PATTERNINDEX nPat, CWnd *parent)
+	: DialogBase{IDD_PATTERN_PROPERTIES, parent}
+	, modDoc{modParent}
+	, m_nPattern{nPat}
+{
+}
+
+
 BOOL CPatternPropertiesDlg::OnInitDialog()
 {
 	CComboBox *combo;
-	CDialog::OnInitDialog();
+	DialogBase::OnInitDialog();
 	combo = (CComboBox *)GetDlgItem(IDC_COMBO1);
 	const CSoundFile &sndFile = modDoc.GetSoundFile();
 
@@ -287,15 +298,16 @@ void CPatternPropertiesDlg::OnOK()
 	const ROWINDEX newSize = (ROWINDEX)GetDlgItemInt(IDC_COMBO1, NULL, FALSE);
 
 	// Check if any pattern data would be removed.
-	bool resize = (newSize != sndFile.Patterns[m_nPattern].GetNumRows());
-	bool resizeAtEnd = IsDlgButtonChecked(IDC_RADIO2) != BST_UNCHECKED;
-	if(newSize < sndFile.Patterns[m_nPattern].GetNumRows())
+	const ROWINDEX oldSize = pattern.GetNumRows();
+	bool resize = newSize != oldSize;
+	const bool resizeAtEnd = IsDlgButtonChecked(IDC_RADIO2) != BST_UNCHECKED;
+	if(newSize < pattern.GetNumRows())
 	{
 		ROWINDEX firstRow = resizeAtEnd ? newSize : 0;
-		ROWINDEX lastRow = resizeAtEnd ? sndFile.Patterns[m_nPattern].GetNumRows() : sndFile.Patterns[m_nPattern].GetNumRows() - newSize;
+		ROWINDEX lastRow = resizeAtEnd ? oldSize : oldSize - newSize;
 		for(ROWINDEX row = firstRow; row < lastRow; row++)
 		{
-			if(!sndFile.Patterns[m_nPattern].IsEmptyRow(row))
+			if(!pattern.IsEmptyRow(row))
 			{
 				resize = (Reporting::Confirm(MPT_AFORMAT("Data at the {} of the pattern will be lost.\nDo you want to continue?")(resizeAtEnd ? "end" : "start"), "Shrink Pattern") == cnfYes);
 				break;
@@ -305,22 +317,37 @@ void CPatternPropertiesDlg::OnOK()
 
 	if(resize)
 	{
+		const bool copyContents = (newSize > oldSize) && IsDlgButtonChecked(IDC_CHECK2) != BST_UNCHECKED;
 		modDoc.BeginWaitCursor();
-		modDoc.GetPatternUndo().PrepareUndo(m_nPattern, 0, 0, sndFile.Patterns[m_nPattern].GetNumChannels(), sndFile.Patterns[m_nPattern].GetNumRows(), "Resize");
+		modDoc.GetPatternUndo().PrepareUndo(m_nPattern, 0, 0, sndFile.Patterns[m_nPattern].GetNumChannels(), oldSize, "Resize");
 		if(sndFile.Patterns[m_nPattern].Resize(newSize, true, resizeAtEnd))
 		{
+			if(copyContents)
+			{
+				const ROWINDEX copyRows = newSize - oldSize;
+				const ROWINDEX sourceBaseRow = resizeAtEnd ? 0 : copyRows;
+				const ROWINDEX baseOffset = resizeAtEnd ? 0 : (oldSize - copyRows % oldSize);
+				ROWINDEX destRow = resizeAtEnd ? oldSize : 0;
+				for(ROWINDEX row = 0; row < copyRows; row++, destRow++)
+				{
+					ROWINDEX sourceRow = sourceBaseRow + (baseOffset + row) % oldSize;
+					const auto sourceRowData = pattern.GetRow(sourceRow);
+					auto destRowData = pattern.GetRow(destRow);
+					std::copy(sourceRowData.begin(), sourceRowData.end(), destRowData.begin());
+				}
+			}
 			modDoc.SetModified();
 		}
 		modDoc.EndWaitCursor();
 	}
-	CDialog::OnOK();
+	DialogBase::OnOK();
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // CEditCommand
 
-BEGIN_MESSAGE_MAP(CEditCommand, CDialog)
+BEGIN_MESSAGE_MAP(CEditCommand, DialogBase)
 	ON_WM_ACTIVATE()
 	ON_WM_CLOSE()
 
@@ -335,7 +362,7 @@ END_MESSAGE_MAP()
 
 void CEditCommand::DoDataExchange(CDataExchange* pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	DialogBase::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CSplitKeyboadSettings)
 	DDX_Control(pDX, IDC_COMBO1,	cbnNote);
 	DDX_Control(pDX, IDC_COMBO2,	cbnInstr);
@@ -351,7 +378,7 @@ void CEditCommand::DoDataExchange(CDataExchange* pDX)
 CEditCommand::CEditCommand(CSoundFile &sndFile)
     : sndFile(sndFile), effectInfo(sndFile)
 {
-	CDialog::Create(IDD_PATTERN_EDITCOMMAND);
+	DialogBase::Create(IDD_PATTERN_EDITCOMMAND);
 }
 
 
@@ -365,7 +392,7 @@ BOOL CEditCommand::PreTranslateMessage(MSG *pMsg)
 			return TRUE;
 		}
 	}
-	return CDialog::PreTranslateMessage(pMsg);
+	return DialogBase::PreTranslateMessage(pMsg);
 }
 
 
@@ -410,6 +437,9 @@ bool CEditCommand::ShowEditWindow(PATTERNINDEX pat, const PatternCursor &cursor,
 		break;
 	case PatternCursor::paramColumn:
 		sldParam.SetFocus();
+		break;
+	case PatternCursor::numColumns:
+		MPT_ASSERT_NOTREACHED();
 		break;
 	}
 
@@ -469,8 +499,7 @@ void CEditCommand::InitNote()
 	if(m->IsPcNote())
 	{
 		// control plugin param note
-		cbnInstr.SetItemData(cbnInstr.AddString(_T("No Effect")), 0);
-		AddPluginNamesToCombobox(cbnInstr, sndFile.m_MixPlugins, false);
+		cbnInstr.Update(PluginComboBox::Config{PluginComboBox::ShowNoPlugin | PluginComboBox::ShowEmptySlots}.CurrentSelection(m->instr ? (m->instr - 1) : PLUGINDEX_INVALID), sndFile);
 	} else
 	{
 		// instrument / sample
@@ -488,8 +517,8 @@ void CEditCommand::InitNote()
 				s += mpt::ToCString(sndFile.GetCharsetInternal(), sndFile.m_szNames[i]);
 			cbnInstr.SetItemData(cbnInstr.AddString(s), i);
 		}
+		cbnInstr.SetRawSelection(m->instr);
 	}
-	cbnInstr.SetCurSel(m->instr);
 	cbnInstr.SetRedraw(TRUE);
 }
 
@@ -599,7 +628,7 @@ void CEditCommand::UpdateVolCmdRange()
 		sldVolParam.EnableWindow(TRUE);
 		sldVolParam.SetRange(rangeMin, rangeMax);
 		Limit(m->vol, rangeMin, rangeMax);
-		sldVolParam.SetPos(m->vol);
+		sldVolParam.SetPos(effectInfo.MapVolumeToPos(m->volcmd, m->vol));
 	} else
 	{
 		// Why does this not update the display at all?
@@ -662,9 +691,17 @@ void CEditCommand::OnNoteChanged()
 	if(n >= 0)
 		newNote = static_cast<ModCommand::NOTE>(cbnNote.GetItemData(n));
 
-	n = cbnInstr.GetCurSel();
-	if(n >= 0)
-		newInstr = static_cast<ModCommand::INSTR>(cbnInstr.GetItemData(n));
+	if(wasParamControl)
+	{
+		if(auto sel = cbnInstr.GetSelection(); sel)
+			newInstr = *sel + 1;
+		else
+			newInstr = 0;
+	} else
+	{
+		if(n = cbnInstr.GetRawSelection(); n >= 0)
+			newInstr = static_cast<ModCommand::INSTR>(cbnInstr.GetItemData(n));
+	}
 
 	if(m->note != newNote || m->instr != newInstr)
 	{
@@ -707,7 +744,7 @@ void CEditCommand::OnVolCmdChanged()
 		newVolCmd = effectInfo.GetVolCmdFromIndex(static_cast<UINT>(cbnVolCmd.GetItemData(n)));
 	}
 
-	newVol = static_cast<ModCommand::VOL>(sldVolParam.GetPos());
+	newVol = effectInfo.MapPosToVolume(newVolCmd, sldVolParam.GetPos());
 
 	const bool volCmdChanged = m->volcmd != newVolCmd;
 	if(volCmdChanged || m->vol != newVol)
@@ -793,7 +830,7 @@ void CEditCommand::UpdateVolCmdValue()
 	} else
 	{
 		// process as effect
-		effectInfo.GetVolCmdParamInfo(*m, &s);
+		effectInfo.GetVolCmdParamInfo(*m, &s, TrackerSettings::Instance().patternVolColHex);
 	}
 	SetDlgItemText(IDC_TEXT2, s);
 }
@@ -871,7 +908,7 @@ void CEditCommand::OnHScroll(UINT, UINT, CScrollBar *bar)
 
 void CEditCommand::OnActivate(UINT nState, CWnd *pWndOther, BOOL bMinimized)
 {
-	CDialog::OnActivate(nState, pWndOther, bMinimized);
+	DialogBase::OnActivate(nState, pWndOther, bMinimized);
 	if(nState == WA_INACTIVE)
 		ShowWindow(SW_HIDE);
 }
@@ -1119,14 +1156,14 @@ void CChordEditor::OnNoteChanged(int noteIndex)
 ////////////////////////////////////////////////////////////////////////////////////////////
 // Keyboard Split Settings (pattern editor)
 
-BEGIN_MESSAGE_MAP(CSplitKeyboardSettings, CDialog)
+BEGIN_MESSAGE_MAP(CSplitKeyboardSettings, DialogBase)
 	ON_CBN_SELCHANGE(IDC_COMBO_OCTAVEMODIFIER, &CSplitKeyboardSettings::OnOctaveModifierChanged)
 END_MESSAGE_MAP()
 
 
 void CSplitKeyboardSettings::DoDataExchange(CDataExchange *pDX)
 {
-	CDialog::DoDataExchange(pDX);
+	DialogBase::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CSplitKeyboadSettings)
 	DDX_Control(pDX, IDC_COMBO_SPLITINSTRUMENT, m_CbnSplitInstrument);
 	DDX_Control(pDX, IDC_COMBO_SPLITNOTE,       m_CbnSplitNote);
@@ -1136,12 +1173,20 @@ void CSplitKeyboardSettings::DoDataExchange(CDataExchange *pDX)
 }
 
 
+CSplitKeyboardSettings::CSplitKeyboardSettings(CWnd *parent, CSoundFile &sf, SplitKeyboardSettings &settings)
+	: DialogBase{IDD_KEYBOARD_SPLIT, parent}
+	, sndFile{sf}
+	, m_Settings{settings}
+{
+}
+
+
 BOOL CSplitKeyboardSettings::OnInitDialog()
 {
 	if(sndFile.GetpModDoc() == nullptr)
 		return TRUE;
 
-	CDialog::OnInitDialog();
+	DialogBase::OnInitDialog();
 
 	CString s;
 
@@ -1214,7 +1259,7 @@ BOOL CSplitKeyboardSettings::OnInitDialog()
 
 void CSplitKeyboardSettings::OnOK()
 {
-	CDialog::OnOK();
+	DialogBase::OnOK();
 
 	m_Settings.splitNote = static_cast<ModCommand::NOTE>(m_CbnSplitNote.GetItemData(m_CbnSplitNote.GetCurSel()) - 1);
 	m_Settings.octaveModifier = m_CbnOctaveModifier.GetCurSel() - SplitKeyboardSettings::splitOctaveRange;
@@ -1226,7 +1271,7 @@ void CSplitKeyboardSettings::OnOK()
 
 void CSplitKeyboardSettings::OnCancel()
 {
-	CDialog::OnCancel();
+	DialogBase::OnCancel();
 }
 
 
@@ -1239,7 +1284,7 @@ void CSplitKeyboardSettings::OnOctaveModifierChanged()
 /////////////////////////////////////////////////////////////////////////
 // Show channel properties from pattern editor
 
-BEGIN_MESSAGE_MAP(QuickChannelProperties, CDialog)
+BEGIN_MESSAGE_MAP(QuickChannelProperties, DialogBase)
 	ON_WM_HSCROLL()		// Sliders
 	ON_WM_ACTIVATE()	// Catch Window focus change
 	ON_EN_UPDATE(IDC_EDIT1,	&QuickChannelProperties::OnVolChanged)
@@ -1254,7 +1299,6 @@ BEGIN_MESSAGE_MAP(QuickChannelProperties, CDialog)
 	ON_COMMAND(IDC_BUTTON5, &QuickChannelProperties::OnPickPrevColor)
 	ON_COMMAND(IDC_BUTTON6, &QuickChannelProperties::OnPickNextColor)
 	ON_MESSAGE(WM_MOD_KEYCOMMAND,	&QuickChannelProperties::OnCustomKeyMsg)
-	ON_NOTIFY_EX_RANGE(TTN_NEEDTEXT, 0, 0xFFFF, &QuickChannelProperties::OnToolTipText)
 END_MESSAGE_MAP()
 
 
@@ -1291,7 +1335,6 @@ void QuickChannelProperties::Show(CModDoc *modDoc, CHANNELINDEX chn, CPoint posi
 	if(!m_hWnd)
 	{
 		Create(IDD_CHANNELSETTINGS, nullptr);
-		EnableToolTips();
 		m_colorBtn.SubclassDlgItem(IDC_BUTTON4, this);
 		m_colorBtnPrev.SubclassDlgItem(IDC_BUTTON5, this);
 		m_colorBtnNext.SubclassDlgItem(IDC_BUTTON6, this);
@@ -1440,7 +1483,7 @@ void QuickChannelProperties::OnHScroll(UINT, UINT, CScrollBar *bar)
 	bool update = false;
 
 	// Volume slider
-	if(bar == reinterpret_cast<CScrollBar *>(&m_volSlider))
+	if(bar->m_hWnd == m_volSlider.m_hWnd)
 	{
 		uint16 pos = static_cast<uint16>(m_volSlider.GetPos());
 		PrepareUndo();
@@ -1451,7 +1494,7 @@ void QuickChannelProperties::OnHScroll(UINT, UINT, CScrollBar *bar)
 		}
 	}
 	// Pan slider
-	if(bar == reinterpret_cast<CScrollBar *>(&m_panSlider))
+	if(bar->m_hWnd == m_panSlider.m_hWnd)
 	{
 		uint16 pos = static_cast<uint16>(m_panSlider.GetPos());
 		PrepareUndo();
@@ -1598,7 +1641,7 @@ BOOL QuickChannelProperties::PreTranslateMessage(MSG *pMsg)
 		}
 	}
 
-	return CDialog::PreTranslateMessage(pMsg);
+	return DialogBase::PreTranslateMessage(pMsg);
 }
 
 
@@ -1627,19 +1670,11 @@ LRESULT QuickChannelProperties::OnCustomKeyMsg(WPARAM wParam, LPARAM)
 }
 
 
-BOOL QuickChannelProperties::OnToolTipText(UINT, NMHDR *pNMHDR, LRESULT *pResult)
+CString QuickChannelProperties::GetToolTipText(UINT id, HWND) const
 {
-	auto pTTT = reinterpret_cast<TOOLTIPTEXT *>(pNMHDR);
-	UINT_PTR id = pNMHDR->idFrom;
-	if(pTTT->uFlags & TTF_IDISHWND)
-	{
-		// idFrom is actually the HWND of the tool
-		id = static_cast<UINT_PTR>(::GetDlgCtrlID(reinterpret_cast<HWND>(id)));
-	}
-
-	mpt::tstring text;
+	CString text;
 	CommandID cmd = kcNull;
-	switch (id)
+	switch(id)
 	{
 	case IDC_EDIT1:
 	case IDC_SLIDER1:
@@ -1665,24 +1700,204 @@ BOOL QuickChannelProperties::OnToolTipText(UINT, NMHDR *pNMHDR, LRESULT *pResult
 		text = _T("Take color from next channel");
 		cmd = kcChnColorFromNext;
 		break;
-	default:
-		return FALSE;
 	}
 	
 	if(cmd != kcNull)
 	{
 		auto keyText = CMainFrame::GetInputHandler()->m_activeCommandSet->GetKeyTextFromCommand(cmd, 0);
 		if(!keyText.IsEmpty())
-			text += MPT_TFORMAT(" ({})")(keyText);
+			text += MPT_CFORMAT(" ({})")(keyText);
 	}
 
-	mpt::String::WriteWinBuf(pTTT->szText) = text;
-	*pResult = 0;
+	return text;
+}
 
-	// bring the tooltip window above other popup windows
-	::SetWindowPos(pNMHDR->hwndFrom, HWND_TOP, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE | SWP_NOOWNERZORDER);
 
-	return TRUE;  // message was handled
+/////////////////////////////////////////////////////////////////////////
+// Metronome settings
+
+static constexpr float METRONOME_VOLUME_SCALE = 0.2f;
+
+BEGIN_MESSAGE_MAP(MetronomeSettingsDlg, DialogBase)
+	ON_WM_HSCROLL()
+
+	ON_COMMAND(IDC_CHECK1,       &MetronomeSettingsDlg::OnToggleMetronome)
+	ON_COMMAND(IDC_BUTTON1,      &MetronomeSettingsDlg::OnBrowseMeasure)
+	ON_COMMAND(IDC_BUTTON2,      &MetronomeSettingsDlg::OnBrowseBeat)
+	ON_CBN_SELCHANGE(IDC_COMBO1, &MetronomeSettingsDlg::OnSampleChanged)
+	ON_CBN_SELCHANGE(IDC_COMBO2, &MetronomeSettingsDlg::OnSampleChanged)
+	ON_EN_KILLFOCUS(IDC_EDIT1,   &MetronomeSettingsDlg::OnSampleChanged)
+	ON_EN_KILLFOCUS(IDC_EDIT2,   &MetronomeSettingsDlg::OnSampleChanged)
+END_MESSAGE_MAP()
+
+
+void MetronomeSettingsDlg::DoDataExchange(CDataExchange* pDX)
+{
+	DDX_Control(pDX, IDC_SLIDER1, m_volumeSlider);
+	DDX_Control(pDX, IDC_COMBO1,  m_measureCombo);
+	DDX_Control(pDX, IDC_COMBO2,  m_beatCombo);
+	DDX_Control(pDX, IDC_EDIT1,   m_measureEdit);
+	DDX_Control(pDX, IDC_EDIT2,   m_beatEdit);
+	DDX_Control(pDX, IDC_BUTTON1, m_measureButton);
+	DDX_Control(pDX, IDC_BUTTON2, m_beatButton);
+}
+
+
+MetronomeSettingsDlg::MetronomeSettingsDlg(CWnd *parent)
+	: DialogBase{IDD_METRONOME_SETTINGS, parent}
+{ }
+
+
+void MetronomeSettingsDlg::SetSampleInfo(const mpt::PathString &path, CComboBox &combo, CEdit &edit, CButton &browseButton)
+{
+	BOOL enable = FALSE;
+	if(path.empty())
+	{
+		combo.SetCurSel(0);
+	} else if(path == TrackerSettings::GetDefaultMetronomeSample())
+	{
+		combo.SetCurSel(1);
+	} else
+	{
+		combo.SetCurSel(2);
+		edit.SetWindowText(path.AsNative().c_str());
+		enable = TRUE;
+	}
+	edit.EnableWindow(enable);
+	browseButton.EnableWindow(enable);
+}
+
+
+BOOL MetronomeSettingsDlg::OnInitDialog()
+{
+	DialogBase::OnInitDialog();
+	CheckDlgButton(IDC_CHECK1, TrackerSettings::Instance().metronomeEnabled ? BST_CHECKED : BST_UNCHECKED);
+	m_volumeSlider.SetRange(static_cast<int>(-48 / METRONOME_VOLUME_SCALE), 0, TRUE);
+	m_volumeSlider.SetPos(mpt::saturate_round<int>(TrackerSettings::Instance().metronomeVolume / METRONOME_VOLUME_SCALE));
+	m_volumeSlider.SetTicFreq(static_cast<int>(3 / METRONOME_VOLUME_SCALE));
+	static const TCHAR *Options[] = {_T("Off"), _T("Default (Sine)"), _T("Custom Sample")};
+	for(const TCHAR *option : Options)
+	{
+		m_measureCombo.AddString(option);
+		m_beatCombo.AddString(option);
+	}
+	SetSampleInfo(TrackerSettings::Instance().metronomeSampleMeasure, m_measureCombo, m_measureEdit, m_measureButton);
+	SetSampleInfo(TrackerSettings::Instance().metronomeSampleBeat, m_beatCombo, m_beatEdit, m_beatButton);
+	return TRUE;
+}
+
+
+void MetronomeSettingsDlg::OnHScroll(UINT, UINT, CScrollBar *bar)
+{
+	if(bar == static_cast<CWnd *>(&m_volumeSlider))
+	{
+		TrackerSettings::Instance().metronomeVolume = m_volumeSlider.GetPos() * METRONOME_VOLUME_SCALE;
+		CMainFrame::GetMainFrame()->UpdateMetronomeVolume();
+	}
+}
+
+
+void MetronomeSettingsDlg::OnToggleMetronome()
+{
+	TrackerSettings::Instance().metronomeEnabled = IsDlgButtonChecked(IDC_CHECK1) != BST_UNCHECKED;
+	CMainFrame::GetMainFrame()->UpdateMetronomeSamples();
+}
+
+
+bool MetronomeSettingsDlg::GetSampleInfo(Setting<mpt::PathString> &path, CComboBox &combo, CEdit &edit, CButton &browseButton)
+{
+	CString s;
+	bool modified = false;
+	BOOL enable = FALSE;
+	switch(combo.GetCurSel())
+	{
+	case 0:
+		if(path != mpt::PathString{})
+		{
+			modified = true;
+			path = {};
+		}
+		break;
+	case 1:
+		if(path != TrackerSettings::GetDefaultMetronomeSample())
+		{
+			modified = true;
+			path = TrackerSettings::GetDefaultMetronomeSample();
+		}
+		break;
+	case 2:
+		edit.GetWindowText(s);
+		if(auto newPath = mpt::PathString::FromCString(s); path != newPath)
+		{
+			path = newPath;
+			modified = true;
+		}
+		enable = TRUE;
+		break;
+	}
+	edit.EnableWindow(enable);
+	browseButton.EnableWindow(enable);
+	return modified;
+}
+
+
+void MetronomeSettingsDlg::OnSampleChanged()
+{
+	bool modified = GetSampleInfo(TrackerSettings::Instance().metronomeSampleMeasure, m_measureCombo, m_measureEdit, m_measureButton);
+	modified |= GetSampleInfo(TrackerSettings::Instance().metronomeSampleBeat, m_beatCombo, m_beatEdit, m_beatButton);
+	if(modified)
+		CMainFrame::GetMainFrame()->LoadMetronomeSamples();
+}
+
+
+mpt::PathString MetronomeSettingsDlg::BrowseForSample(const mpt::PathString &path)
+{
+	static int lastIndex = 0;
+	FileDialog dlg = OpenFileDialog()
+		.EnableAudioPreview()
+		.ExtensionFilter(ConstructSampleFormatFileFilter(false))
+		.WorkingDirectory(path.empty() ? TrackerSettings::Instance().PathSamples.GetWorkingDir() : path.GetDirectoryWithDrive())
+		.DefaultFilename(path.GetFilename())
+		.FilterIndex(&lastIndex);
+	if(!dlg.Show(this))
+		return {};
+	TrackerSettings::Instance().PathSamples.SetWorkingDir(dlg.GetWorkingDirectory());
+	return dlg.GetFirstFile();
+}
+
+
+void MetronomeSettingsDlg::OnBrowseMeasure()
+{
+	auto newPath = BrowseForSample(TrackerSettings::Instance().metronomeSampleMeasure);
+	if(newPath.empty())
+		return;
+	m_measureEdit.SetWindowText(newPath.ToCString());
+	OnSampleChanged();
+}
+
+
+void MetronomeSettingsDlg::OnBrowseBeat()
+{
+	auto newPath = BrowseForSample(TrackerSettings::Instance().metronomeSampleBeat);
+	if(newPath.empty())
+		return;
+	m_beatEdit.SetWindowText(newPath.ToCString());
+	OnSampleChanged();
+}
+
+
+CString MetronomeSettingsDlg::GetToolTipText(UINT id, HWND) const
+{
+	CString s;
+	switch(id)
+	{
+	case IDC_SLIDER1:
+		s = (m_volumeSlider.GetPos() >= 0) ? _T("+") : _T("");
+		s.AppendFormat(_T("%.2f dB"), m_volumeSlider.GetPos() * METRONOME_VOLUME_SCALE);
+		break;
+	}
+
+	return s;
 }
 
 

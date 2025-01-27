@@ -1,5 +1,5 @@
 /*
- * view_gen.cpp
+ * View_gen.cpp
  * ------------
  * Purpose: General tab, lower panel.
  * Notes  : (currently none)
@@ -12,7 +12,6 @@
 #include "stdafx.h"
 #include "View_gen.h"
 #include "AbstractVstEditor.h"
-#include "ChannelManagerDlg.h"
 #include "Childfrm.h"
 #include "Ctrl_gen.h"
 #include "EffectVis.h"
@@ -21,9 +20,10 @@
 #include "Mainfrm.h"
 #include "Moddoc.h"
 #include "MoveFXSlotDialog.h"
-#include "Mptrack.h"
 #include "Reporting.h"
+#include "resource.h"
 #include "SelectPluginDialog.h"
+#include "WindowMessages.h"
 #include "../common/mptStringBuffer.h"
 #include "../soundlib/mod_specifications.h"
 #include "../soundlib/plugins/PlugInterface.h"
@@ -167,7 +167,16 @@ void CViewGlobals::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_SPIN8,		m_spinPan[3]);
 	DDX_Control(pDX, IDC_BUTTON1,	m_BtnSelect);
 	DDX_Control(pDX, IDC_BUTTON2,	m_BtnEdit);
+	DDX_Control(pDX, IDC_BUTTON4, m_nextPluginButton);
+	DDX_Control(pDX, IDC_BUTTON5, m_prevPluginButton);
 	//}}AFX_DATA_MAP
+}
+
+
+CViewGlobals::CViewGlobals() : CFormView{IDD_VIEW_GLOBALS}
+{
+	m_prevPluginButton.SetAccessibleText(_T("Previous Plugin"));
+	m_nextPluginButton.SetAccessibleText(_T("Next Plugin"));
 }
 
 
@@ -187,7 +196,7 @@ void CViewGlobals::OnInitialUpdate()
 
 	if (pFrame)
 	{
-		GENERALVIEWSTATE &generalState = pFrame->GetGeneralViewState();
+		GeneralViewState &generalState = pFrame->GetGeneralViewState();
 		if (generalState.initialized)
 		{
 			m_TabCtrl.SetCurSel(generalState.nTab);
@@ -228,6 +237,7 @@ void CViewGlobals::OnInitialUpdate()
 	m_CbnSpecialMixProcessing.AddString(_T("Mix Subtract"));
 	m_CbnSpecialMixProcessing.AddString(_T("Middle Subtract"));
 	m_CbnSpecialMixProcessing.AddString(_T("LR Balance"));
+	m_CbnSpecialMixProcessing.AddString(_T("Instrument"));
 	m_SpinMixGain.SetRange(0, 80);
 	m_SpinMixGain.SetPos(10);
 	SetDlgItemText(IDC_EDIT16, _T("Gain: x1.0"));
@@ -246,7 +256,7 @@ void CViewGlobals::OnDestroy()
 	CChildFrame *pFrame = (CChildFrame *)GetParentFrame();
 	if (pFrame)
 	{
-		GENERALVIEWSTATE &generalState = pFrame->GetGeneralViewState();
+		GeneralViewState &generalState = pFrame->GetGeneralViewState();
 		generalState.initialized = true;
 		generalState.nTab = m_nActiveTab;
 		generalState.nPlugin = m_nCurrentPlugin;
@@ -288,6 +298,9 @@ void CViewGlobals::RecalcLayout()
 }
 
 
+void CViewGlobals::UnlockControls() { PostMessage(WM_MOD_UNLOCKCONTROLS); }
+
+
 int CViewGlobals::GetDlgItemIntEx(UINT nID)
 {
 	CString s;
@@ -318,11 +331,12 @@ void CViewGlobals::UpdateView(UpdateHint hint, CObject *pObject)
 	const CModDoc *pModDoc = GetDocument();
 	int nTabCount, nTabIndex;
 
-	if (!pModDoc || pObject == this ) return;
+	if(!pModDoc || pObject == this)
+		return;
 	const CSoundFile &sndFile = pModDoc->GetSoundFile();
 	const GeneralHint genHint = hint.ToType<GeneralHint>();
 	const PluginHint plugHint = hint.ToType<PluginHint>();
-	if (!genHint.GetType()[HINT_MODTYPE | HINT_MODCHANNELS]
+	if(!genHint.GetType()[HINT_MODTYPE | HINT_MODCHANNELS]
 		&& !plugHint.GetType()[HINT_MIXPLUGINS | HINT_PLUGINNAMES | HINT_PLUGINPARAM])
 	{
 		return;
@@ -335,7 +349,7 @@ void CViewGlobals::UpdateView(UpdateHint hint, CObject *pObject)
 		return;
 
 	CString s;
-	nTabCount = (sndFile.m_nChannels + (CHANNELS_IN_TAB - 1)) / CHANNELS_IN_TAB;
+	nTabCount = (sndFile.GetNumChannels() + (CHANNELS_IN_TAB - 1)) / CHANNELS_IN_TAB;
 	if (nTabCount != m_TabCtrl.GetItemCount())
 	{
 		UINT nOldSel = m_TabCtrl.GetCurSel();
@@ -370,7 +384,7 @@ void CViewGlobals::UpdateView(UpdateHint hint, CObject *pObject)
 		{
 			const CHANNELINDEX nChn = m_nActiveTab * CHANNELS_IN_TAB + ichn;
 			const BOOL bEnable = (nChn < sndFile.GetNumChannels()) ? TRUE : FALSE;
-			if(nChn < MAX_BASECHANNELS)
+			if(nChn < sndFile.GetNumChannels())
 			{
 				const auto &chnSettings = sndFile.ChnSettings[nChn];
 				// Text
@@ -409,7 +423,7 @@ void CViewGlobals::UpdateView(UpdateHint hint, CObject *pObject)
 			}
 
 			// Enable/Disable controls for this channel
-			BOOL bIT = ((bEnable) && (sndFile.m_nType & (MOD_TYPE_IT|MOD_TYPE_MPT)));
+			BOOL bIT = ((bEnable) && (sndFile.GetType() & (MOD_TYPE_IT|MOD_TYPE_MPT)));
 			GetDlgItem(IDC_CHECK1 + ichn * 2)->EnableWindow(bEnable);
 			GetDlgItem(IDC_CHECK2 + ichn * 2)->EnableWindow(bIT);
 
@@ -420,7 +434,7 @@ void CViewGlobals::UpdateView(UpdateHint hint, CObject *pObject)
 			m_spinPan[ichn].EnableWindow(bEnable && !(sndFile.GetType() & (MOD_TYPE_XM|MOD_TYPE_MOD)));
 			GetDlgItem(IDC_EDIT1 + ichn * 2)->EnableWindow(bIT);	// channel vol
 			GetDlgItem(IDC_EDIT2 + ichn * 2)->EnableWindow(bEnable && !(sndFile.GetType() & (MOD_TYPE_XM|MOD_TYPE_MOD)));	// channel pan
-			GetDlgItem(IDC_EDIT9 + ichn)->EnableWindow(((bEnable) && (sndFile.m_nType & (MOD_TYPE_XM|MOD_TYPE_IT|MOD_TYPE_MPT))));	// channel name
+			GetDlgItem(IDC_EDIT9 + ichn)->EnableWindow(((bEnable) && (sndFile.GetType() & (MOD_TYPE_XM|MOD_TYPE_IT|MOD_TYPE_MPT))));	// channel name
 			m_CbnEffects[ichn].EnableWindow(bEnable & (sndFile.GetModSpecifications().supportsPlugins ? TRUE : FALSE));
 		}
 		UnlockControls();
@@ -429,8 +443,12 @@ void CViewGlobals::UpdateView(UpdateHint hint, CObject *pObject)
 	// Update plugin names
 	if(genHint.GetType()[HINT_MODTYPE | HINT_MODCHANNELS] || plugHint.GetType()[HINT_PLUGINNAMES])
 	{
-		PopulateChannelPlugins(plugHint.GetPlugin() ? plugHint.GetPlugin() - 1 : PLUGINDEX_INVALID);
-		SetDlgItemText(IDC_EDIT13, mpt::ToCString(sndFile.m_MixPlugins[m_nCurrentPlugin].GetName()));
+		PopulateChannelPlugins(hint, pObject);
+		if(plugHint.GetType()[HINT_MODTYPE | HINT_PLUGINNAMES])
+		{
+			m_CbnPlugin.Update(PluginComboBox::Config{PluginComboBox::ShowEmptySlots | PluginComboBox::ShowLibraryNames}.Hint(plugHint, pObject).CurrentSelection(m_nCurrentPlugin), sndFile);
+			SetDlgItemText(IDC_EDIT13, mpt::ToCString(sndFile.m_MixPlugins[m_nCurrentPlugin].GetName()));
+		}
 	}
 	// Update plugin info
 	const SNDMIXPLUGIN &plugin = sndFile.m_MixPlugins[m_nCurrentPlugin];
@@ -438,37 +456,24 @@ void CViewGlobals::UpdateView(UpdateHint hint, CObject *pObject)
 	const bool updateWholePluginView = updateAll || (plugHint.GetType()[HINT_MIXPLUGINS] && updatePlug);
 	if(updateWholePluginView)
 	{
-		const PLUGINDEX plugIndex = (plugHint.GetPlugin() != 0) ? plugHint.GetPlugin() - 1 : PLUGINDEX_INVALID;
-		m_CbnPlugin.SetRedraw(FALSE);
-		if(plugIndex == PLUGINDEX_INVALID)
-			m_CbnPlugin.ResetContent();
-		AddPluginNamesToCombobox(m_CbnPlugin, sndFile.m_MixPlugins, true, plugIndex);
-		m_CbnPlugin.SetRedraw(TRUE);
-		m_CbnPlugin.SetCurSel(m_nCurrentPlugin);
-		if (m_nCurrentPlugin >= MAX_MIXPLUGINS) m_nCurrentPlugin = 0;
+		if(m_nCurrentPlugin >= MAX_MIXPLUGINS)
+			m_nCurrentPlugin = 0;
+		m_CbnPlugin.SetSelection(m_nCurrentPlugin);
 		SetDlgItemText(IDC_EDIT13, mpt::ToCString(plugin.GetName()));
 		CheckDlgButton(IDC_CHECK9, plugin.IsMasterEffect() ? BST_CHECKED : BST_UNCHECKED);
 		CheckDlgButton(IDC_CHECK10, plugin.IsBypassed() ? BST_CHECKED : BST_UNCHECKED);
-		CheckDlgButton(IDC_CHECK11, plugin.IsWetMix() ? BST_CHECKED : BST_UNCHECKED);
+		CheckDlgButton(IDC_CHECK11, plugin.IsDryMix() ? BST_CHECKED : BST_UNCHECKED);
 		CheckDlgButton(IDC_CHECK13, plugin.IsAutoSuspendable() ? BST_CHECKED : BST_UNCHECKED);
 		IMixPlugin *pPlugin = plugin.pMixPlugin;
-		m_BtnEdit.EnableWindow((pPlugin != nullptr && (pPlugin->HasEditor() || pPlugin->GetNumParameters())) ? TRUE : FALSE);
+		m_BtnEdit.EnableWindow((pPlugin != nullptr && (pPlugin->HasEditor() || pPlugin->GetNumVisibleParameters())) ? TRUE : FALSE);
 		GetDlgItem(IDC_MOVEFXSLOT)->EnableWindow((pPlugin) ? TRUE : FALSE);
 		GetDlgItem(IDC_INSERTFXSLOT)->EnableWindow((pPlugin) ? TRUE : FALSE);
 		GetDlgItem(IDC_CLONEPLUG)->EnableWindow((pPlugin) ? TRUE : FALSE);
+		GetDlgItem(IDC_DELPLUGIN)->EnableWindow((plugin.IsValidPlugin() || !plugin.Info.szLibraryName.empty() || !plugin.Info.szName.empty()) ? TRUE : FALSE);
 		UpdateDryWetDisplay();
 
-		if(pPlugin && pPlugin->IsInstrument())
-		{
-			m_CbnSpecialMixProcessing.EnableWindow(FALSE);
-			GetDlgItem(IDC_CHECK12)->EnableWindow(FALSE);
-		} else
-		{
-			m_CbnSpecialMixProcessing.EnableWindow(TRUE);
-			GetDlgItem(IDC_CHECK12)->EnableWindow(TRUE);
-			m_CbnSpecialMixProcessing.SetCurSel(plugin.GetMixMode());
-			CheckDlgButton(IDC_CHECK12, plugin.IsExpandedMix() ? BST_CHECKED : BST_UNCHECKED);
-		}
+		m_CbnSpecialMixProcessing.SetCurSel(static_cast<int>(plugin.GetMixMode()));
+		CheckDlgButton(IDC_CHECK12, plugin.IsExpandedMix() ? BST_CHECKED : BST_UNCHECKED);
 		int gain = plugin.GetGain();
 		if(gain == 0) gain = 10;
 		float value = 0.1f * (float)gain;
@@ -478,7 +483,7 @@ void CViewGlobals::UpdateView(UpdateHint hint, CObject *pObject)
 
 		if (pPlugin)
 		{
-			const PlugParamIndex nParams = pPlugin->GetNumParameters();
+			const PlugParamIndex nParams = pPlugin->GetNumVisibleParameters();
 			m_CbnParam.SetRedraw(FALSE);
 			m_CbnParam.ResetContent();
 			if (m_nCurrentParam >= nParams) m_nCurrentParam = 0;
@@ -609,57 +614,15 @@ void CViewGlobals::UpdateView(UpdateHint hint, CObject *pObject)
 }
 
 
-void CViewGlobals::PopulateChannelPlugins(PLUGINDEX plugin)
+void CViewGlobals::PopulateChannelPlugins(UpdateHint hint, const CObject *pObj)
 {
-	// Channel effect lists
 	const CSoundFile &sndFile = GetDocument()->GetSoundFile();
-	CString s;
 	for(CHANNELINDEX ichn = 0; ichn < CHANNELS_IN_TAB; ichn++)
 	{
-		const CHANNELINDEX nChn = m_nActiveTab * CHANNELS_IN_TAB + ichn;
-		auto &comboBox = m_CbnEffects[ichn];
-		if(nChn < MAX_BASECHANNELS)
+		if(const CHANNELINDEX nChn = m_nActiveTab * CHANNELS_IN_TAB + ichn; nChn < sndFile.GetNumChannels())
 		{
-			comboBox.SetRedraw(FALSE);
-			int insertAt = 1;
-			if(plugin == PLUGINDEX_INVALID)
-			{
-				comboBox.ResetContent();
-				comboBox.SetItemData(comboBox.AddString(_T("No plugin")), 0);
-			} else
-			{
-				const int items = comboBox.GetCount();
-				for(insertAt = 1; insertAt < items; insertAt++)
-				{
-					auto thisPlugin = static_cast<PLUGINDEX>(comboBox.GetItemData(insertAt));
-					if(thisPlugin == (plugin + 1))
-						comboBox.DeleteString(insertAt);
-					if(thisPlugin >= (plugin + 1))
-						break;
-				}
-			}
-			int fxsel = 0;
-			for(PLUGINDEX ifx = 0; ifx < MAX_MIXPLUGINS; ifx++)
-			{
-				if(plugin != PLUGINDEX_INVALID && ifx != plugin)
-					continue;
-				if(sndFile.m_MixPlugins[ifx].IsValidPlugin()
-					|| (sndFile.m_MixPlugins[ifx].GetName() != U_(""))
-					|| (sndFile.ChnSettings[nChn].nMixPlugin == ifx + 1))
-				{
-					s = MPT_CFORMAT("FX{}: ")(ifx + 1);
-					s += mpt::ToCString(sndFile.m_MixPlugins[ifx].GetName());
-					insertAt = comboBox.InsertString(insertAt, s);
-					comboBox.SetItemData(insertAt, ifx + 1);
-					if(sndFile.ChnSettings[nChn].nMixPlugin == ifx + 1)
-						fxsel = insertAt;
-					insertAt++;
-				}
-			}
-			comboBox.SetRedraw(TRUE);
-			if(plugin == PLUGINDEX_INVALID || fxsel > 0)
-				comboBox.SetCurSel(fxsel);
-			comboBox.Invalidate(FALSE);
+			PLUGINDEX sel = sndFile.ChnSettings[nChn].nMixPlugin ? sndFile.ChnSettings[nChn].nMixPlugin - 1 : PLUGINDEX_INVALID;
+			m_CbnEffects[ichn].Update(PluginComboBox::Config{PluginComboBox::ShowNoPlugin}.Hint(hint, pObj).CurrentSelection(sel), sndFile);
 		}
 	}
 }
@@ -850,14 +813,11 @@ void CViewGlobals::OnEditPan4() {OnEditPan(3, IDC_EDIT8);}
 
 void CViewGlobals::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar)
 {
-	CModDoc *pModDoc;
-	CHANNELINDEX nChn;
-
 	CFormView::OnHScroll(nSBCode, nPos, pScrollBar);
 
-	pModDoc = GetDocument();
-	nChn = (CHANNELINDEX)(m_nActiveTab * CHANNELS_IN_TAB);
-	if ((pModDoc) && (!IsLocked()) && (nChn < MAX_BASECHANNELS))
+	CModDoc *pModDoc = GetDocument();
+	const CHANNELINDEX nChn = (CHANNELINDEX)(m_nActiveTab * CHANNELS_IN_TAB);
+	if(pModDoc && !IsLocked() && nChn < pModDoc->GetNumChannels())
 	{
 		BOOL bUpdate = FALSE;
 		short int pos;
@@ -896,7 +856,6 @@ void CViewGlobals::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar)
 			}
 		}
 
-
 		if ((pScrollBar) && (pScrollBar->m_hWnd == m_sbDryRatio.m_hWnd))
 		{
 			int n = 100 - m_sbDryRatio.GetPos();
@@ -924,7 +883,7 @@ void CViewGlobals::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar)
 				IMixPlugin *pPlugin = GetCurrentPlugin();
 				if(pPlugin != nullptr)
 				{
-					const PlugParamIndex nParams = pPlugin->GetNumParameters();
+					const PlugParamIndex nParams = pPlugin->GetNumVisibleParameters();
 					if(m_nCurrentParam < nParams)
 					{
 						if (nSBCode == SB_THUMBPOSITION || nSBCode == SB_THUMBTRACK || nSBCode == SB_ENDSCROLL)
@@ -1008,12 +967,15 @@ void CViewGlobals::OnFxChanged(const CHANNELINDEX chnMod4)
 	{
 		CSoundFile &sndFile = pModDoc->GetSoundFile();
 		CHANNELINDEX nChn = m_nActiveTab * CHANNELS_IN_TAB + chnMod4;
-		int nfx = static_cast<int>(m_CbnEffects[chnMod4].GetItemData(m_CbnEffects[chnMod4].GetCurSel()));
-		if ((nfx >= 0) && (nfx <= MAX_MIXPLUGINS) && (nChn < sndFile.GetNumChannels())
-		 && (sndFile.ChnSettings[nChn].nMixPlugin != (UINT)nfx))
+		PLUGINDEX nfx = m_CbnEffects[chnMod4].GetSelection().value_or(PLUGINDEX_INVALID);
+		if(nfx == PLUGINDEX_INVALID)
+			nfx = 0;
+		else
+			nfx++;
+		if(nChn < sndFile.GetNumChannels() && sndFile.ChnSettings[nChn].nMixPlugin != nfx)
 		{
 			PrepareUndo(chnMod4);
-			sndFile.ChnSettings[nChn].nMixPlugin = (PLUGINDEX)nfx;
+			sndFile.ChnSettings[nChn].nMixPlugin = nfx;
 			if(sndFile.GetModSpecifications().supportsPlugins)
 				pModDoc->SetModified();
 			pModDoc->UpdateAllViews(this, GeneralHint(nChn).Channels());
@@ -1044,21 +1006,16 @@ void CViewGlobals::OnPluginNameChanged()
 			plugin.Info.szName = mpt::ToCharset(mpt::Charset::Locale, s);
 			if(sndFile.GetModSpecifications().supportsPlugins)
 				pModDoc->SetModified();
-			pModDoc->UpdateAllViews(this, PluginHint(m_nCurrentPlugin + 1).Info().Names(), this);
+			const auto updateHint = PluginHint(m_nCurrentPlugin + 1).Names();
+			pModDoc->UpdateAllViews(this, updateHint, this);
 
 			IMixPlugin *pPlugin = plugin.pMixPlugin;
 			if(pPlugin != nullptr && pPlugin->GetEditor() != nullptr)
 			{
 				pPlugin->GetEditor()->SetTitle();
 			}
-			// Update channel plugin assignments
-			PopulateChannelPlugins(m_nCurrentPlugin);
-
-			m_CbnPlugin.SetRedraw(FALSE);
-			AddPluginNamesToCombobox(m_CbnPlugin, sndFile.m_MixPlugins, true, m_nCurrentPlugin);
-			m_CbnPlugin.SetCurSel(m_nCurrentPlugin);
-			m_CbnPlugin.Invalidate(FALSE);
-			m_CbnPlugin.SetRedraw(TRUE);
+			m_CbnPlugin.Update(PluginComboBox::Config{updateHint}, sndFile);
+			PopulateChannelPlugins(updateHint);
 		}
 	}
 }
@@ -1089,11 +1046,10 @@ void CViewGlobals::OnNextPlugin()
 
 void CViewGlobals::OnPluginChanged()
 {
-	CModDoc *pModDoc = GetDocument();
-	int nPlugin = m_CbnPlugin.GetCurSel();
-	if ((pModDoc) && (nPlugin >= 0) && (nPlugin < MAX_MIXPLUGINS))
+	const PLUGINDEX plugin = m_CbnPlugin.GetSelection().value_or(PLUGINDEX_INVALID);
+	if(plugin != PLUGINDEX_INVALID)
 	{
-		m_nCurrentPlugin = (PLUGINDEX)nPlugin;
+		m_nCurrentPlugin = plugin;
 		UpdateView(PluginHint(m_nCurrentPlugin + 1).Info());
 	}
 	m_CbnPreset.SetCurSel(0);
@@ -1165,7 +1121,7 @@ void CViewGlobals::OnParamChanged()
 
 	if(pPlugin != nullptr && cursel != static_cast<PlugParamIndex>(CB_ERR))
 	{
-		const PlugParamIndex nParams = pPlugin->GetNumParameters();
+		const PlugParamIndex nParams = pPlugin->GetNumVisibleParameters();
 		if(cursel < nParams) m_nCurrentParam = cursel;
 		if(m_nCurrentParam < nParams)
 		{
@@ -1197,7 +1153,7 @@ void CViewGlobals::OnFocusParam()
 	IMixPlugin *pPlugin = GetCurrentPlugin();
 	if(pPlugin != nullptr)
 	{
-		const PlugParamIndex nParams = pPlugin->GetNumParameters();
+		const PlugParamIndex nParams = pPlugin->GetNumVisibleParameters();
 		if(m_nCurrentParam < nParams)
 		{
 			TCHAR s[32];
@@ -1270,7 +1226,7 @@ void CViewGlobals::OnSetParameter()
 
 	if(pPlugin != nullptr)
 	{
-		const PlugParamIndex nParams = pPlugin->GetNumParameters();
+		const PlugParamIndex nParams = pPlugin->GetNumVisibleParameters();
 		TCHAR s[32];
 		GetDlgItemText(IDC_EDIT14, s, mpt::saturate_cast<int>(std::size(s)));
 		if ((m_nCurrentParam < nParams) && (s[0]))
@@ -1317,8 +1273,8 @@ void CViewGlobals::OnBypassChanged()
 	auto &mixPlugs = pModDoc->GetSoundFile().m_MixPlugins;
 	auto &currentPlug = pModDoc->GetSoundFile().m_MixPlugins[m_nCurrentPlugin];
 	bool bypass = IsDlgButtonChecked(IDC_CHECK10) != BST_UNCHECKED;
-	const bool bypassOthers = CMainFrame::GetInputHandler()->ShiftPressed();
-	const bool bypassOnlyMasterPlugs = CMainFrame::GetInputHandler()->CtrlPressed();
+	const bool bypassOthers = CInputHandler::ShiftPressed();
+	const bool bypassOnlyMasterPlugs = CInputHandler::CtrlPressed();
 	if(bypassOthers || bypassOnlyMasterPlugs)
 	{
 		CheckDlgButton(IDC_CHECK10, currentPlug.IsBypassed() ? BST_CHECKED : BST_UNCHECKED);
@@ -1388,7 +1344,7 @@ void CViewGlobals::OnSpecialMixProcessingChanged()
 	CModDoc *pModDoc = GetDocument();
 	if ((m_nCurrentPlugin >= MAX_MIXPLUGINS) || (!pModDoc)) return;
 
-	pModDoc->GetSoundFile().m_MixPlugins[m_nCurrentPlugin].SetMixMode((uint8)m_CbnSpecialMixProcessing.GetCurSel());
+	pModDoc->GetSoundFile().m_MixPlugins[m_nCurrentPlugin].SetMixMode(static_cast<PluginMixMode>(m_CbnSpecialMixProcessing.GetCurSel()));
 	SetPluginModified();
 }
 
@@ -1398,7 +1354,7 @@ void CViewGlobals::OnDryMixChanged()
 	CModDoc *pModDoc = GetDocument();
 	if ((m_nCurrentPlugin >= MAX_MIXPLUGINS) || (!pModDoc)) return;
 
-	pModDoc->GetSoundFile().m_MixPlugins[m_nCurrentPlugin].SetWetMix(IsDlgButtonChecked(IDC_CHECK11) != BST_UNCHECKED);
+	pModDoc->GetSoundFile().m_MixPlugins[m_nCurrentPlugin].SetDryMix(IsDlgButtonChecked(IDC_CHECK11) != BST_UNCHECKED);
 	SetPluginModified();
 }
 
@@ -1407,7 +1363,7 @@ void CViewGlobals::OnEditPlugin()
 {
 	CModDoc *pModDoc = GetDocument();
 	if ((m_nCurrentPlugin >= MAX_MIXPLUGINS) || (!pModDoc)) return;
-	pModDoc->TogglePluginEditor(m_nCurrentPlugin, CMainFrame::GetInputHandler()->ShiftPressed());
+	pModDoc->TogglePluginEditor(m_nCurrentPlugin, CInputHandler::ShiftPressed());
 	return;
 }
 
@@ -1437,7 +1393,7 @@ void CViewGlobals::OnOutputRoutingChanged()
 				SetPluginModified();
 				nroute = 0x80 + i;
 				m_nCurrentPlugin = i;
-				m_CbnPlugin.SetCurSel(i);
+				m_CbnPlugin.SetSelection(i);
 				OnPluginChanged();
 				break;
 			}
@@ -1521,7 +1477,7 @@ void CViewGlobals::OnMovePlugToSlot()
 			}
 		} while(dlg.DoMoveChain());
 
-		m_CbnPlugin.SetCurSel(dlg.GetSlot());
+		m_CbnPlugin.SetSelection(dlg.GetSlot());
 		OnPluginChanged();
 		GetDocument()->UpdateAllViews(nullptr, PluginHint().Names().Info());
 	}
@@ -1691,7 +1647,7 @@ void CViewGlobals::OnInsertSlot()
 			}
 		}
 
-		m_CbnPlugin.SetCurSel(m_nCurrentPlugin);
+		m_CbnPlugin.SetSelection(m_nCurrentPlugin);
 		OnPluginChanged();
 		GetDocument()->UpdateAllViews(nullptr, PluginHint().Names().Info());
 
@@ -1744,11 +1700,10 @@ void CViewGlobals::OnClonePlug()
 			}
 		} while(dlg.DoMoveChain());
 
-		m_CbnPlugin.SetCurSel(dlg.GetSlot());
+		m_CbnPlugin.SetSelection(dlg.GetSlot());
 		OnPluginChanged();
-		PopulateChannelPlugins();
-		CView *sender = dlg.DoMoveChain() ? nullptr : this;
-		GetDocument()->UpdateAllViews(sender, PluginHint().Names(), sender);
+		//PopulateChannelPlugins(PluginHint().Names());
+		GetDocument()->UpdateAllViews(nullptr, PluginHint().Names(), nullptr);
 
 		SetPluginModified();
 	}
@@ -1765,7 +1720,7 @@ void CViewGlobals::OnFillParamCombo()
 	IMixPlugin *pPlugin = GetCurrentPlugin();
 	if(pPlugin == nullptr) return;
 
-	const PlugParamIndex nParams = pPlugin->GetNumParameters();
+	const PlugParamIndex nParams = pPlugin->GetNumVisibleParameters();
 	m_CbnParam.SetRedraw(FALSE);
 	m_CbnParam.ResetContent();
 
@@ -1808,6 +1763,27 @@ void CViewGlobals::FillPluginProgramBox(int32 firstProg, int32 lastProg)
 
 	m_CbnPreset.SetRedraw(TRUE);
 	m_CbnPreset.Invalidate(FALSE);
+}
+
+
+INT_PTR CViewGlobals::OnToolHitTest(CPoint point, TOOLINFO *pTI) const
+{
+	INT_PTR nHit = CFormView::OnToolHitTest(point, pTI);
+	if(nHit >= 0 && pTI && (pTI->uFlags & TTF_IDISHWND))
+	{
+		// Workaround to get tooltips even for disabled controls inside group boxes that are positioned in the "correct" tab order position.
+		// For some reason doesn't work for enabled controls (probably because pTI->hwnd then doesn't point at the active control under the cursor),
+		// so we use the default code path there, which works just fine.
+		HWND child = reinterpret_cast<HWND>(pTI->uId);
+		if(!::IsWindowEnabled(child))
+		{
+			pTI->uId = nHit;
+			pTI->uFlags &= ~TTF_IDISHWND;
+			::GetWindowRect(child, &pTI->rect);
+			ScreenToClient(&pTI->rect);
+		}
+	}
+	return nHit;
 }
 
 

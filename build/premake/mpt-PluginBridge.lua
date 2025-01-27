@@ -23,10 +23,20 @@
    "../../common/versionNumber.h",
   }
 	excludes {
+		"../../src/mpt/main/**.cpp",
+		"../../src/mpt/main/**.hpp",
+		"../../src/openmpt/fileformat_base/**.cpp",
+		"../../src/openmpt/fileformat_base/**.hpp",
 		"../../src/openmpt/soundbase/**.cpp",
 		"../../src/openmpt/soundbase/**.hpp",
+		"../../src/openmpt/soundfile_data/**.cpp",
+		"../../src/openmpt/soundfile_data/**.hpp",
+		"../../src/openmpt/soundfile_write/**.cpp",
+		"../../src/openmpt/soundfile_write/**.hpp",
 		"../../src/openmpt/sounddevice/**.cpp",
 		"../../src/openmpt/sounddevice/**.hpp",
+		"../../src/openmpt/streamencoder/**.cpp",
+		"../../src/openmpt/streamencoder/**.hpp",
 	}
   files {
    "../../pluginBridge/PluginBridge.rc",
@@ -50,6 +60,8 @@
    targetsuffix "-arm"
   filter { "architecture:ARM64" }
    targetsuffix "-arm64"
+  filter { "architecture:ARM64EC" }
+   targetsuffix "-arm64ec"
 
  project "PluginBridgeLegacy"
   uuid "BDEC2D44-C957-4940-A32B-02824AF6E21D"
@@ -75,10 +87,20 @@
    "../../common/versionNumber.h",
   }
 	excludes {
+		"../../src/mpt/main/**.cpp",
+		"../../src/mpt/main/**.hpp",
+		"../../src/openmpt/fileformat_base/**.cpp",
+		"../../src/openmpt/fileformat_base/**.hpp",
 		"../../src/openmpt/soundbase/**.cpp",
 		"../../src/openmpt/soundbase/**.hpp",
+		"../../src/openmpt/soundfile_data/**.cpp",
+		"../../src/openmpt/soundfile_data/**.hpp",
+		"../../src/openmpt/soundfile_write/**.cpp",
+		"../../src/openmpt/soundfile_write/**.hpp",
 		"../../src/openmpt/sounddevice/**.cpp",
 		"../../src/openmpt/sounddevice/**.hpp",
+		"../../src/openmpt/streamencoder/**.cpp",
+		"../../src/openmpt/streamencoder/**.hpp",
 	}
   files {
    "../../pluginBridge/PluginBridge.rc",
@@ -113,10 +135,14 @@
    targetsuffix "-arm"
   filter { "architecture:ARM64" }
    targetsuffix "-arm64"
+  filter { "architecture:ARM64EC" }
+   targetsuffix "-arm64ec"
   filter {}
 	filter {}
 	filter { "action:vs*", "architecture:x86_64" }
 		linkoptions { "/HIGHENTROPYVA:NO" }
 	filter { "action:vs*", "architecture:ARM64" }
+		linkoptions { "/HIGHENTROPYVA:NO" }
+	filter { "action:vs*", "architecture:ARM64EC" }
 		linkoptions { "/HIGHENTROPYVA:NO" }
 	filter {}
