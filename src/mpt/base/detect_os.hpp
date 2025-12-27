@@ -95,7 +95,12 @@
 
 
 // The order of the checks matters!
-#if defined(__DJGPP__)
+#if defined(MPT_OS_GENERIC)
+#undef MPT_OS_GENERIC
+#define MPT_OS_GENERIC 1
+
+
+#elif defined(__DJGPP__)
 #define MPT_OS_DJGPP 1
 
 
@@ -415,7 +420,7 @@ static_assert(WDK_NTDDI_VERSION >= MPT_WIN_VERSION);
 #define MPT_OS_NETBSD 1
 
 
-#elif defined(__unix__)
+#elif defined(__unix__) || defined(__unix) || defined(unix)
 #define MPT_OS_GENERIC_UNIX 1
 
 
@@ -426,6 +431,9 @@ static_assert(WDK_NTDDI_VERSION >= MPT_WIN_VERSION);
 #endif
 
 
+#ifndef MPT_OS_GENERIC
+#define MPT_OS_GENERIC 0
+#endif
 #ifndef MPT_OS_DJGPP
 #define MPT_OS_DJGPP 0
 #endif
@@ -524,6 +532,17 @@ static_assert(WDK_NTDDI_VERSION >= MPT_WIN_VERSION);
 #endif
 #ifndef MPT_OS_UNKNOWN
 #define MPT_OS_UNKNOWN 0
+#endif
+
+
+#ifndef MPT_OS_HAS_UNISTD_H
+#if MPT_OS_GENERIC
+#define MPT_OS_HAS_UNISTD_H 0
+#elif __has_include(<unistd.h>)
+#define MPT_OS_HAS_UNISTD_H 1
+#else
+#define MPT_OS_HAS_UNISTD_H 0
+#endif
 #endif
 
 
